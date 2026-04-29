@@ -18,12 +18,18 @@ echo "[start] building backend..."
 
 SESSION="roth"
 tmux kill-session -t "$SESSION" 2>/dev/null || true
-# Pass .env-sourced vars explicitly into the tmux pane: the tmux server's
-# stored environment can shadow our shell (e.g. a stale PORT from another
-# project), so inline-prefixing the binary call wins.
-BACKEND_ENV="PORT=${PORT} LOG_LEVEL=${LOG_LEVEL} FRONTEND_URL=${FRONTEND_URL} CORS_ALLOW_ORIGIN=${CORS_ALLOW_ORIGIN} TAX_TABLES_DIR=${TAX_TABLES_DIR} DEFAULT_TAX_YEAR=${DEFAULT_TAX_YEAR}"
-tmux new-session -d -s "$SESSION" -n server "cd $ROOT && env ${BACKEND_ENV} ./backend/bin/roth-server 2>&1 | tee logs/server.log"
-tmux new-window  -t "$SESSION" -n web    "cd $ROOT/apps/web && npm run dev 2>&1 | tee $ROOT/logs/web.log"
+# tmux new-session inherits env from the tmux server, not the calling shell, so
+# a stale var (e.g. PORT=8000 from a sibling project) would shadow our .env.
+# Pass each .env-sourced var explicitly via -e so each value is its own quoted arg.
+tmux new-session -d -s "$SESSION" -n server \
+  -e "PORT=$PORT" \
+  -e "LOG_LEVEL=$LOG_LEVEL" \
+  -e "FRONTEND_URL=$FRONTEND_URL" \
+  -e "CORS_ALLOW_ORIGIN=$CORS_ALLOW_ORIGIN" \
+  -e "TAX_TABLES_DIR=$TAX_TABLES_DIR" \
+  -e "DEFAULT_TAX_YEAR=$DEFAULT_TAX_YEAR" \
+  "cd $ROOT && ./backend/bin/roth-server 2>&1 | tee logs/server.log"
+tmux new-window -t "$SESSION" -n web "cd $ROOT/apps/web && npm run dev 2>&1 | tee $ROOT/logs/web.log"
 
 echo "[start] tmux session '$SESSION' running. Attach with: tmux attach -t $SESSION"
 echo "  backend: http://localhost:${PORT:-8090}"

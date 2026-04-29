@@ -111,7 +111,7 @@ export default function Home() {
           </Field>
           <Field
             label="Annual other taxable income"
-            hint="Wages, pension, taxable interest — anything taxable before the conversion. Held flat across the horizon (v1)."
+            hint="Wages, pension, taxable interest, or anything else taxable before the conversion. Held flat across the horizon (v1)."
           >
             <NumberInput
               value={form.annual_other_income}
@@ -159,10 +159,10 @@ export default function Home() {
             />
             <span>
               <span>Include RMDs at age 73/75 (SECURE Act 2.0)</span>
-              <span className="block text-[11px] leading-snug text-gray-500">
+              <Hint>
                 Forces Required Minimum Distributions once you hit RMD age (73 if born 1951-1959,
                 75 if born 1960+). RMDs leave the system and reduce ending balance.
-              </span>
+              </Hint>
             </span>
           </label>
         </fieldset>
@@ -232,9 +232,13 @@ function Field({
     <label className="block mb-3">
       <span className="block text-xs font-medium text-gray-700 mb-1">{label}</span>
       {children}
-      {hint && <span className="mt-1 block text-[11px] leading-snug text-gray-500">{hint}</span>}
+      {hint && <Hint>{hint}</Hint>}
     </label>
   );
+}
+
+function Hint({ children }: { children: React.ReactNode }) {
+  return <span className="mt-1 block text-[11px] leading-snug text-gray-500">{children}</span>;
 }
 
 function NumberInput({ value, onChange }: { value: number; onChange: (v: number) => void }) {
