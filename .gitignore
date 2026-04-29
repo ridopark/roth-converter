@@ -1,0 +1,11 @@
+.env
+backend/bin/
+apps/web/.next/
+apps/web/node_modules/
+apps/web/out/
+apps/web/tsconfig.tsbuildinfo
+logs/*.log
+*.db
+*.db-journal
+*.db-shm
+*.db-wal

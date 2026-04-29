@@ -1,0 +1,125 @@
+{
+  "year": 2026,
+  "notes": "Source: IRS Rev. Proc. 2025-32 (TCJA extended via OBBBA July 2025). CMS 2026 Medicare premium notice. ACA 2026 FPL (cliff returned, enhanced subsidies expired end of 2025). NIIT and SS thresholds are static (not inflation-indexed). SECURE Act 2.0 RMD ages.",
+  "standard_deduction": {
+    "single": 16100,
+    "mfj": 32200,
+    "hoh": 24150,
+    "additional_age_65": {
+      "single": 1650,
+      "mfj_each": 1300,
+      "hoh": 1650
+    }
+  },
+  "ordinary_brackets": {
+    "single": [
+      {"rate": 0.10, "max": 12400},
+      {"rate": 0.12, "max": 50400},
+      {"rate": 0.22, "max": 105700},
+      {"rate": 0.24, "max": 201775},
+      {"rate": 0.32, "max": 256225},
+      {"rate": 0.35, "max": 640600},
+      {"rate": 0.37, "max": null}
+    ],
+    "mfj": [
+      {"rate": 0.10, "max": 24800},
+      {"rate": 0.12, "max": 100800},
+      {"rate": 0.22, "max": 211400},
+      {"rate": 0.24, "max": 403550},
+      {"rate": 0.32, "max": 512450},
+      {"rate": 0.35, "max": 768700},
+      {"rate": 0.37, "max": null}
+    ],
+    "hoh": [
+      {"rate": 0.10, "max": 17700},
+      {"rate": 0.12, "max": 67450},
+      {"rate": 0.22, "max": 105700},
+      {"rate": 0.24, "max": 201775},
+      {"rate": 0.32, "max": 256200},
+      {"rate": 0.35, "max": 640600},
+      {"rate": 0.37, "max": null}
+    ]
+  },
+  "ltcg_brackets": {
+    "single": {"zero_max": 49450, "fifteen_max": 545500},
+    "mfj":    {"zero_max": 98900, "fifteen_max": 613700},
+    "hoh":    {"zero_max": 66200, "fifteen_max": 579600}
+  },
+  "irmaa_tiers": {
+    "single": [
+      {"label": "standard", "max_magi": 109000, "annual_surcharge_per_person": 0},
+      {"label": "tier1",    "max_magi": 137000, "annual_surcharge_per_person": 1147},
+      {"label": "tier2",    "max_magi": 171000, "annual_surcharge_per_person": 2873},
+      {"label": "tier3",    "max_magi": 205000, "annual_surcharge_per_person": 4595},
+      {"label": "tier4",    "max_magi": 500000, "annual_surcharge_per_person": 6273},
+      {"label": "tier5",    "max_magi": null,   "annual_surcharge_per_person": 6935}
+    ],
+    "mfj": [
+      {"label": "standard", "max_magi": 218000, "annual_surcharge_per_person": 0},
+      {"label": "tier1",    "max_magi": 274000, "annual_surcharge_per_person": 1147},
+      {"label": "tier2",    "max_magi": 342000, "annual_surcharge_per_person": 2873},
+      {"label": "tier3",    "max_magi": 410000, "annual_surcharge_per_person": 4595},
+      {"label": "tier4",    "max_magi": 750000, "annual_surcharge_per_person": 6273},
+      {"label": "tier5",    "max_magi": null,   "annual_surcharge_per_person": 6935}
+    ]
+  },
+  "ss_provisional_thresholds": {
+    "single": {"lower": 25000, "upper": 34000},
+    "hoh":    {"lower": 25000, "upper": 34000},
+    "mfj":    {"lower": 32000, "upper": 44000}
+  },
+  "niit_threshold": {
+    "single": 200000,
+    "hoh":    200000,
+    "mfj":    250000,
+    "mfs":    125000
+  },
+  "niit_rate": 0.038,
+  "aca_fpl_400pct_2026": {
+    "1": 62600,
+    "2": 84600,
+    "3": 106600,
+    "4": 128600,
+    "5": 150600,
+    "per_additional": 22000
+  },
+  "rmd_age_by_birth_year": {
+    "before_1951": 72,
+    "1951_to_1959": 73,
+    "1960_or_later": 75
+  },
+  "rmd_uniform_lifetime_divisors": {
+    "73": 26.5, "74": 25.5, "75": 24.6, "76": 23.7, "77": 22.9,
+    "78": 22.0, "79": 21.1, "80": 20.2, "81": 19.4, "82": 18.5,
+    "83": 17.7, "84": 16.8, "85": 16.0, "86": 15.2, "87": 14.4,
+    "88": 13.7, "89": 12.9, "90": 12.2, "91": 11.5, "92": 10.8,
+    "93": 10.1, "94":  9.5, "95":  8.9, "96":  8.4, "97":  7.8,
+    "98":  7.3, "99":  6.8, "100": 6.4
+  },
+  "states": {
+    "no_tax": ["AK", "FL", "NV", "NH", "SD", "TN", "TX", "WA", "WY"],
+    "approximate_top_marginal_rate": {
+      "CA": 0.133,
+      "NY": 0.109,
+      "NJ": 0.1075,
+      "OR": 0.099,
+      "MN": 0.0985,
+      "HI": 0.11,
+      "MA": 0.09,
+      "VT": 0.0875,
+      "DC": 0.1075,
+      "IL": 0.0495,
+      "PA": 0.0,
+      "MS": 0.0,
+      "AZ": 0.025,
+      "CO": 0.044,
+      "GA": 0.0539,
+      "NC": 0.0399,
+      "VA": 0.0575,
+      "OH": 0.035,
+      "MI": 0.0425,
+      "IN": 0.03,
+      "MD": 0.0575
+    }
+  }
+}
