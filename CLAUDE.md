@@ -12,7 +12,7 @@
 
 ## Architecture
 - Go backend: hexagonal (domain -> ports -> adapters). Solves the multi-year Roth-conversion optimization problem given a user profile, balances, and income forecast.
-- Next.js 16 frontend: single-page calculator. Form -> POST /plan -> year-by-year recommendation table.
+- Next.js 16 frontend: single-page calculator. Form -> POST /matrix -> sensitivity grid + year-by-year tables.
 - Communication: REST only. No SSE, no WebSocket.
 - Storage: stateless v1. Tax-table JSON (data/tax-tables-{year}.json) is loaded at boot. No user data persisted.
 - Hexagonal payoff: ConversionSolver port lets us swap greedy v1 for a multi-year DP solver in v2 without changing handlers.

@@ -88,10 +88,16 @@ export default function Home() {
       <form onSubmit={submit} className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
         <fieldset className="border rounded p-4">
           <legend className="font-semibold px-2">You</legend>
-          <Field label="Age">
+          <Field
+            label="Age"
+            hint="Your age today. Drives the per-year age series and RMD eligibility."
+          >
             <NumberInput value={form.age} onChange={(v) => setForm({ ...form, age: v })} />
           </Field>
-          <Field label="Filing status">
+          <Field
+            label="Filing status"
+            hint="Federal filing status. Sets bracket widths and the standard deduction."
+          >
             <select
               className="border rounded p-1 w-full"
               value={form.filing_status}
@@ -103,23 +109,35 @@ export default function Home() {
               <option value="mfs">Married filing separately</option>
             </select>
           </Field>
-          <Field label="Annual other taxable income">
+          <Field
+            label="Annual other taxable income"
+            hint="Wages, pension, taxable interest — anything taxable before the conversion. Held flat across the horizon (v1)."
+          >
             <NumberInput
               value={form.annual_other_income}
               onChange={(v) => setForm({ ...form, annual_other_income: v })}
             />
           </Field>
-          <Field label="Tax year (for brackets)">
+          <Field
+            label="Tax year (for brackets)"
+            hint="Year of the tax tables to use (default 2026). v1 applies the same brackets every projected year."
+          >
             <NumberInput value={form.tax_year} onChange={(v) => setForm({ ...form, tax_year: v })} />
           </Field>
         </fieldset>
 
         <fieldset className="border rounded p-4">
           <legend className="font-semibold px-2">401(k)</legend>
-          <Field label="Total 401(k) balance">
+          <Field
+            label="Total 401(k) balance"
+            hint="Combined Traditional + Roth 401(k) today. Split by the next field."
+          >
             <NumberInput value={form.total_401k} onChange={(v) => setForm({ ...form, total_401k: v })} />
           </Field>
-          <Field label="Traditional %">
+          <Field
+            label="Traditional %"
+            hint="Share of the balance in pre-tax (Traditional). The remainder is Roth."
+          >
             <input
               type="number"
               min={0}
@@ -132,25 +150,38 @@ export default function Home() {
           <div className="text-xs text-gray-500 -mt-1 mb-2">
             Roth %: {(100 - form.traditional_pct).toFixed(0)}%
           </div>
-          <label className="flex items-center gap-2 text-sm">
+          <label className="flex items-start gap-2 text-sm">
             <input
               type="checkbox"
+              className="mt-0.5"
               checked={form.include_rmd}
               onChange={(e) => setForm({ ...form, include_rmd: e.target.checked })}
             />
-            Include RMDs at age 73/75 (SECURE Act 2.0)
+            <span>
+              <span>Include RMDs at age 73/75 (SECURE Act 2.0)</span>
+              <span className="block text-[11px] leading-snug text-gray-500">
+                Forces Required Minimum Distributions once you hit RMD age (73 if born 1951-1959,
+                75 if born 1960+). RMDs leave the system and reduce ending balance.
+              </span>
+            </span>
           </label>
         </fieldset>
 
         <fieldset className="border rounded p-4">
           <legend className="font-semibold px-2">Scenarios</legend>
-          <Field label="Horizon (years)">
+          <Field
+            label="Horizon (years)"
+            hint="Years to project starting this year (default 10)."
+          >
             <NumberInput
               value={form.horizon_years}
               onChange={(v) => setForm({ ...form, horizon_years: v })}
             />
           </Field>
-          <Field label="Rates of return (%)">
+          <Field
+            label="Rates of return (%)"
+            hint="Comma-separated annual rates to sweep. Same nominal rate applied to Traditional and Roth."
+          >
             <input
               type="text"
               className="border rounded p-1 w-full"
@@ -159,7 +190,10 @@ export default function Home() {
               placeholder="10, 15, 20, 25"
             />
           </Field>
-          <Field label="Annual conversion cases ($)">
+          <Field
+            label="Annual conversion cases ($)"
+            hint="Comma-separated annual conversion amounts to sweep. Held constant each year, capped by Traditional balance after RMD. Tax is paid from outside the 401(k), so 100% of the conversion lands in Roth."
+          >
             <input
               type="text"
               className="border rounded p-1 w-full"
@@ -185,11 +219,20 @@ export default function Home() {
   );
 }
 
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
+function Field({
+  label,
+  hint,
+  children,
+}: {
+  label: string;
+  hint?: string;
+  children: React.ReactNode;
+}) {
   return (
-    <label className="block mb-2">
-      <span className="block text-xs text-gray-600 mb-1">{label}</span>
+    <label className="block mb-3">
+      <span className="block text-xs font-medium text-gray-700 mb-1">{label}</span>
       {children}
+      {hint && <span className="mt-1 block text-[11px] leading-snug text-gray-500">{hint}</span>}
     </label>
   );
 }
