@@ -7,6 +7,7 @@ apps/web/tsconfig.tsbuildinfo
 logs/*.log
 .playwright-mcp/
 apps/web/.playwright-mcp/
+.wrangler/
 *.db
 *.db-journal
 *.db-shm
