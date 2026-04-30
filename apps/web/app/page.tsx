@@ -634,8 +634,8 @@ function SeriesChart({
   seriesKeys: string[];
 }) {
   return (
-    <div className="border rounded p-2 bg-white">
-      <h3 className="text-xs font-semibold text-gray-700 mb-1">{title}</h3>
+    <div className="border border-amber-200 rounded p-2 bg-white">
+      <h3 className="text-xs font-semibold text-amber-900 mb-1">{title}</h3>
       <ResponsiveContainer width="100%" height={220}>
         <LineChart data={data} margin={{ top: 8, right: 12, left: 4, bottom: 4 }}>
           <CartesianGrid strokeDasharray="3 3" stroke="#eee" />
@@ -787,7 +787,7 @@ function BracketChart({
   }, [data, refLines]);
 
   return (
-    <div className="border rounded p-3 mb-6 bg-white">
+    <div className="border border-amber-200 rounded p-3 mb-6 bg-white">
       <ResponsiveContainer width="100%" height={320}>
         <LineChart data={data} margin={{ top: 12, right: 32, left: 16, bottom: 8 }}>
           <CartesianGrid strokeDasharray="3 3" stroke="#eee" />
@@ -852,37 +852,37 @@ function BracketChart({
 function YearTable({ scenario }: { scenario: Scenario }) {
   return (
     <div>
-      <p className="text-sm text-gray-600 mb-2">
-        Total tax {fmtMoney(scenario.summary.total_federal_tax)}, end balance{" "}
-        {fmtMoney(scenario.summary.ending_total)}
+      <p className="text-sm text-gray-700 mb-2">
+        Total tax <strong>{fmtMoney(scenario.summary.total_federal_tax)}</strong>, end balance{" "}
+        <strong>{fmtMoney(scenario.summary.ending_total)}</strong>
       </p>
       <div className="overflow-x-auto">
-        <table className="min-w-full text-sm border">
-          <thead className="bg-amber-100 text-amber-900">
+        <table className="min-w-full text-sm border border-amber-200">
+          <thead className="bg-amber-500 text-white">
             <tr>
-              <th className="p-2 border-b text-left">Year</th>
-              <th className="p-2 border-b text-left">Age</th>
-              <th className="p-2 border-b text-left">RMD</th>
-              <th className="p-2 border-b text-left">Conversion</th>
-              <th className="p-2 border-b text-left">Taxable</th>
-              <th className="p-2 border-b text-left">Federal tax</th>
-              <th className="p-2 border-b text-left">End traditional</th>
-              <th className="p-2 border-b text-left">End Roth</th>
-              <th className="p-2 border-b text-left">End total</th>
+              <th className="p-2 text-left font-semibold">Year</th>
+              <th className="p-2 text-left font-semibold">Age</th>
+              <th className="p-2 text-left font-semibold">RMD</th>
+              <th className="p-2 text-left font-semibold">Conversion</th>
+              <th className="p-2 text-left font-semibold">Taxable</th>
+              <th className="p-2 text-left font-semibold">Federal tax</th>
+              <th className="p-2 text-left font-semibold">End traditional</th>
+              <th className="p-2 text-left font-semibold">End Roth</th>
+              <th className="p-2 text-left font-semibold">End total</th>
             </tr>
           </thead>
           <tbody>
             {scenario.years.map((y) => (
-              <tr key={y.year_index}>
-                <td className="p-2 border-b">{y.calendar_year}</td>
-                <td className="p-2 border-b">{y.age}</td>
-                <td className="p-2 border-b">{y.rmd > 0 ? fmtMoney(y.rmd) : "-"}</td>
-                <td className="p-2 border-b">{y.conversion > 0 ? fmtMoney(y.conversion) : "-"}</td>
-                <td className="p-2 border-b">{fmtMoney(y.taxable_income)}</td>
-                <td className="p-2 border-b">{fmtMoney(y.federal_tax)}</td>
-                <td className="p-2 border-b">{fmtMoney(y.ending_traditional)}</td>
-                <td className="p-2 border-b">{fmtMoney(y.ending_roth)}</td>
-                <td className="p-2 border-b font-semibold">{fmtMoney(y.ending_total)}</td>
+              <tr key={y.year_index} className="odd:bg-white even:bg-amber-50/40 hover:bg-amber-50">
+                <td className="p-2 border-b border-amber-100">{y.calendar_year}</td>
+                <td className="p-2 border-b border-amber-100">{y.age}</td>
+                <td className="p-2 border-b border-amber-100">{y.rmd > 0 ? fmtMoney(y.rmd) : "-"}</td>
+                <td className="p-2 border-b border-amber-100">{y.conversion > 0 ? fmtMoney(y.conversion) : "-"}</td>
+                <td className="p-2 border-b border-amber-100">{fmtMoney(y.taxable_income)}</td>
+                <td className="p-2 border-b border-amber-100">{fmtMoney(y.federal_tax)}</td>
+                <td className="p-2 border-b border-amber-100">{fmtMoney(y.ending_traditional)}</td>
+                <td className="p-2 border-b border-amber-100">{fmtMoney(y.ending_roth)}</td>
+                <td className="p-2 border-b border-amber-100 font-semibold">{fmtMoney(y.ending_total)}</td>
               </tr>
             ))}
           </tbody>
