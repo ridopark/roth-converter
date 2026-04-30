@@ -72,6 +72,17 @@ export async function postMatrix(req: MatrixRequest): Promise<MatrixResponse> {
   return r.json();
 }
 
+export interface BracketsResponse {
+  brackets: Bracket[];
+  standard_deduction: number;
+}
+
+export async function getBrackets(status: FilingStatus, year: number): Promise<BracketsResponse> {
+  const r = await fetch(`${BACKEND}/brackets?status=${status}&year=${year}`);
+  if (!r.ok) throw new Error(`brackets request failed: ${r.status}`);
+  return r.json();
+}
+
 export function pingVisit(): void {
   if (typeof window === "undefined") return;
   if (BACKEND.includes("localhost")) return;

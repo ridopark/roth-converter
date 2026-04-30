@@ -20,6 +20,7 @@ import {
   parseRateList,
   pingVisit,
   withBaselineCase,
+  getBrackets,
   type Bracket,
   type MatrixResponse,
   type FilingStatus,
@@ -66,11 +67,39 @@ export default function Home() {
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [dialogs, setDialogs] = useState<DialogState[]>([]);
+  const [bracketsInfo, setBracketsInfo] = useState<{ brackets: Bracket[]; standard_deduction: number } | null>(null);
   const zCounterRef = useRef(1000);
 
   useEffect(() => {
     pingVisit();
   }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    getBrackets(form.filing_status, form.tax_year)
+      .then((b) => {
+        if (!cancelled) setBracketsInfo(b);
+      })
+      .catch(() => {
+        if (!cancelled) setBracketsInfo(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [form.filing_status, form.tax_year]);
+
+  function fillBracket(targetRate: number) {
+    if (!bracketsInfo) return;
+    const b = bracketsInfo.brackets.find((br) => br.rate === targetRate);
+    if (!b || b.max <= 0) return;
+    const headroom = Math.max(0, b.max - Math.max(0, form.annual_other_income - bracketsInfo.standard_deduction));
+    if (headroom <= 0) return;
+    const rounded = Math.round(headroom / 100) * 100;
+    const existing = parseAmountList(form.conversion_cases_str);
+    if (existing.includes(rounded)) return;
+    const merged = withBaselineCase([...existing, rounded]);
+    setForm({ ...form, conversion_cases_str: merged.join(", ") });
+  }
 
   function nextZ() {
     zCounterRef.current += 1;
@@ -362,6 +391,36 @@ export default function Home() {
               onChange={(e) => setForm({ ...form, conversion_cases_str: e.target.value })}
               placeholder="25000, 50000, 100000"
             />
+            {bracketsInfo && (
+              <div className="flex items-center gap-1 mt-1 flex-wrap">
+                <span className="text-[11px] text-gray-500 dark:text-gray-400">Add bracket-fill:</span>
+                {bracketsInfo.brackets
+                  .filter((b) => b.max > 0 && b.rate < 0.32)
+                  .map((b) => {
+                    const headroom = Math.max(
+                      0,
+                      b.max - Math.max(0, form.annual_other_income - bracketsInfo.standard_deduction)
+                    );
+                    const disabled = headroom <= 0;
+                    return (
+                      <button
+                        key={b.rate}
+                        type="button"
+                        disabled={disabled}
+                        onClick={() => fillBracket(b.rate)}
+                        title={
+                          disabled
+                            ? `Other income already exceeds top of ${(b.rate * 100).toFixed(0)}%`
+                            : `Add ${fmtMoney(Math.round(headroom / 100) * 100)}/yr to fill the ${(b.rate * 100).toFixed(0)}% bracket`
+                        }
+                        className="px-1.5 py-0.5 text-[11px] rounded border border-amber-300 dark:border-amber-700 text-amber-900 dark:text-amber-200 hover:bg-amber-50 dark:hover:bg-amber-900/30 disabled:opacity-40 disabled:cursor-not-allowed"
+                      >
+                        Fill {(b.rate * 100).toFixed(0)}%
+                      </button>
+                    );
+                  })}
+              </div>
+            )}
           </Field>
           <button
             type="submit"
