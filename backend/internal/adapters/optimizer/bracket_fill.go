@@ -82,10 +82,10 @@ func (o *BracketFill) Solve(req domain.OptimizeRequest) (domain.OptimizePlan, er
 
 	for i := 0; i < r.Horizon; i++ {
 		in.MAGITwoYearsAgo = magiPrev2
-		in.OtherIncome = pickPerYear(req.OtherIncomePerYear, i, req.AnnualOtherIncome)
-		in.AnnualSSBenefit = pickPerYear(req.SSBenefitPerYear, i, req.AnnualSSBenefit)
-		in.TaxableDivLTCG = pickPerYear(req.TaxableDivLTCGPerYear, i, req.TaxableDivLTCG)
-		in.Rate = pickPerYear(req.RatesPerYear, i, req.RateOfReturn)
+		in.OtherIncome = domain.PickPerYear(req.OtherIncomePerYear, i, req.AnnualOtherIncome)
+		in.AnnualSSBenefit = domain.PickPerYear(req.SSBenefitPerYear, i, req.AnnualSSBenefit)
+		in.TaxableDivLTCG = domain.PickPerYear(req.TaxableDivLTCGPerYear, i, req.TaxableDivLTCG)
+		in.Rate = domain.PickPerYear(req.RatesPerYear, i, req.RateOfReturn)
 		var year domain.ScenarioYear
 		year, state = domain.ProjectYear(state, in, fillToBracket)
 		year.YearIndex = i + 1
@@ -131,11 +131,3 @@ func (o *BracketFill) Solve(req domain.OptimizeRequest) (domain.OptimizePlan, er
 	}, nil
 }
 
-// pickPerYear returns overrides[index] when overrides has at least index+1
-// entries, otherwise the scalar fallback.
-func pickPerYear(overrides []float64, index int, fallback float64) float64 {
-	if index < len(overrides) {
-		return overrides[index]
-	}
-	return fallback
-}

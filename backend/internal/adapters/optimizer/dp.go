@@ -40,10 +40,9 @@ type dpStateKey struct {
 }
 
 type dpStepCache struct {
-	coreCost   float64 // fed + state + niit + aca (everything except IRMAA)
-	currentMAGI float64
+	coreCost    float64 // fed + state + niit + aca (everything except IRMAA)
 	currentTier int8
-	nextBucket int32
+	nextBucket  int32
 }
 
 type dpYearVals struct {
@@ -126,10 +125,10 @@ func (d *DP) Solve(req domain.OptimizeRequest) (domain.OptimizePlan, error) {
 	perYear := make([]dpYearVals, horizon)
 	for i := 0; i < horizon; i++ {
 		perYear[i] = dpYearVals{
-			rate:        pickPerYear(req.RatesPerYear, i, req.RateOfReturn),
-			otherIncome: pickPerYear(req.OtherIncomePerYear, i, req.AnnualOtherIncome),
-			ssBenefit:   pickPerYear(req.SSBenefitPerYear, i, req.AnnualSSBenefit),
-			ltcg:        pickPerYear(req.TaxableDivLTCGPerYear, i, req.TaxableDivLTCG),
+			rate:        domain.PickPerYear(req.RatesPerYear, i, req.RateOfReturn),
+			otherIncome: domain.PickPerYear(req.OtherIncomePerYear, i, req.AnnualOtherIncome),
+			ssBenefit:   domain.PickPerYear(req.SSBenefitPerYear, i, req.AnnualSSBenefit),
+			ltcg:        domain.PickPerYear(req.TaxableDivLTCGPerYear, i, req.TaxableDivLTCG),
 			age:         req.Age + i,
 		}
 	}
@@ -180,7 +179,6 @@ func (d *DP) Solve(req domain.OptimizeRequest) (domain.OptimizePlan, error) {
 		}
 		v := dpStepCache{
 			coreCost:    fedTax + stateTax + niit + aca,
-			currentMAGI: magi,
 			currentTier: tierIdx(magi),
 			nextBucket:  snap(nextTrad),
 		}
@@ -192,18 +190,27 @@ func (d *DP) Solve(req domain.OptimizeRequest) (domain.OptimizePlan, error) {
 	// balance in year H, on top of last-year recurring income. Monotone
 	// increasing in tradEnd, which is what the DP needs to compare horizon
 	// states honestly. Lump-sum is conservative versus a 4%-rule annuity proxy.
-	terminalCost := func(tradEnd float64) float64 {
-		if tradEnd <= 0 {
-			return 0
-		}
+	//
+	// Pre-compute by bucket: backward induction queries terminalCost once per
+	// (year H-1, action) tuple, which can hit ~1M+ for a 10-year bench. A flat
+	// per-bucket lookup table is ~50x faster than recomputing the formula.
+	terminalByBucket := make([]float64, nBuckets)
+	{
 		last := perYear[horizon-1]
-		ssBig := tables.TaxableSS(last.otherIncome+tradEnd+last.ltcg, last.ssBenefit, req.FilingStatus)
-		ssZero := tables.TaxableSS(last.otherIncome+last.ltcg, last.ssBenefit, req.FilingStatus)
-		afterBig := math.Max(0, last.otherIncome+tradEnd+ssBig-stdDed)
-		afterZero := math.Max(0, last.otherIncome+ssZero-stdDed)
-		fedDelta := tables.OrdinaryTax(afterBig, req.FilingStatus) - tables.OrdinaryTax(afterZero, req.FilingStatus)
-		stateDelta := tradEnd * r.StateRate
-		return fedDelta + stateDelta
+		for b := 0; b < nBuckets; b++ {
+			tradEnd := float64(b) * step
+			if tradEnd <= 0 {
+				terminalByBucket[b] = 0
+				continue
+			}
+			ssBig := tables.TaxableSS(last.otherIncome+tradEnd+last.ltcg, last.ssBenefit, req.FilingStatus)
+			ssZero := tables.TaxableSS(last.otherIncome+last.ltcg, last.ssBenefit, req.FilingStatus)
+			afterBig := math.Max(0, last.otherIncome+tradEnd+ssBig-stdDed)
+			afterZero := math.Max(0, last.otherIncome+ssZero-stdDed)
+			fedDelta := tables.OrdinaryTax(afterBig, req.FilingStatus) - tables.OrdinaryTax(afterZero, req.FilingStatus)
+			stateDelta := tradEnd * r.StateRate
+			terminalByBucket[b] = fedDelta + stateDelta
+		}
 	}
 
 	costToGo := make(map[dpStateKey]float64, horizon*nBuckets*49)
@@ -212,7 +219,7 @@ func (d *DP) Solve(req domain.OptimizeRequest) (domain.OptimizePlan, error) {
 	var solve func(yearIdx int16, tradBucket int32, magi1, magi2 int8) float64
 	solve = func(yearIdx int16, tradBucket int32, magi1, magi2 int8) float64 {
 		if int(yearIdx) >= horizon {
-			return terminalCost(bucketDollars(tradBucket))
+			return terminalByBucket[tradBucket]
 		}
 		key := dpStateKey{yearIdx, tradBucket, magi1, magi2}
 		if v, ok := costToGo[key]; ok {

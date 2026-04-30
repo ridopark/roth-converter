@@ -432,6 +432,16 @@ func Round(v float64) float64 {
 	return math.Round(v*100) / 100
 }
 
+// PickPerYear returns overrides[index] when overrides has at least index+1
+// entries, otherwise the scalar fallback. Used by both adapters to thread
+// per-year input arrays through the projection loop with scalar defaults.
+func PickPerYear(overrides []float64, index int, fallback float64) float64 {
+	if index < len(overrides) {
+		return overrides[index]
+	}
+	return fallback
+}
+
 type YearState struct {
 	Trad    float64
 	Roth    float64

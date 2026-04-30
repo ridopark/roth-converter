@@ -75,9 +75,9 @@ func projectScenario(rate, convCase float64, profile domain.Profile, r domain.Re
 
 	for i := 0; i < r.Horizon; i++ {
 		in.MAGITwoYearsAgo = magiPrev2
-		in.OtherIncome = pickPerYear(profile.OtherIncomePerYear, i, profile.AnnualOtherIncome)
-		in.AnnualSSBenefit = pickPerYear(profile.SSBenefitPerYear, i, profile.AnnualSSBenefit)
-		in.TaxableDivLTCG = pickPerYear(profile.TaxableDivLTCGPerYear, i, profile.TaxableDivLTCG)
+		in.OtherIncome = domain.PickPerYear(profile.OtherIncomePerYear, i, profile.AnnualOtherIncome)
+		in.AnnualSSBenefit = domain.PickPerYear(profile.SSBenefitPerYear, i, profile.AnnualSSBenefit)
+		in.TaxableDivLTCG = domain.PickPerYear(profile.TaxableDivLTCGPerYear, i, profile.TaxableDivLTCG)
 		var year domain.ScenarioYear
 		year, state = domain.ProjectYear(state, in, func(_ domain.YearState, _ float64) float64 { return convCase })
 		year.YearIndex = i + 1
@@ -113,12 +113,3 @@ func projectScenario(rate, convCase float64, profile domain.Profile, r domain.Re
 	}
 }
 
-// pickPerYear returns overrides[index] when overrides has at least index+1
-// entries, otherwise the scalar fallback. This is how every per-year-override
-// field defaults to the scalar Profile field unless explicitly provided.
-func pickPerYear(overrides []float64, index int, fallback float64) float64 {
-	if index < len(overrides) {
-		return overrides[index]
-	}
-	return fallback
-}

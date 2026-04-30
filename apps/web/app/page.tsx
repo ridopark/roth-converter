@@ -873,6 +873,15 @@ function Hint({ children }: { children: React.ReactNode }) {
   return <span className="mt-1 block text-[11px] leading-snug text-gray-500 dark:text-gray-400">{children}</span>;
 }
 
+function MatrixCellRow({ label, value, first }: { label: string; value: number; first?: boolean }) {
+  return (
+    <>
+      <div className={`text-xs text-gray-500 dark:text-gray-400${first ? "" : " mt-1"}`}>{label}</div>
+      <div className="font-semibold">{fmtMoney(value)}</div>
+    </>
+  );
+}
+
 function PerYearAdvanced({
   form,
   setForm,
@@ -1106,42 +1115,13 @@ function Results({
                           open ? "bg-amber-50 dark:bg-amber-900/30" : ""
                         }`}
                       >
-                        <div className="text-xs text-gray-500 dark:text-gray-400">
-                          {hasStateTax || hasIRMAA ? "fed tax" : "tax"}
-                        </div>
-                        <div className="font-semibold">{fmtMoney(s.summary.total_federal_tax)}</div>
-                        {hasStateTax && (
-                          <>
-                            <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">state tax</div>
-                            <div className="font-semibold">{fmtMoney(s.summary.total_state_tax)}</div>
-                          </>
-                        )}
-                        {hasIRMAA && (
-                          <>
-                            <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">IRMAA</div>
-                            <div className="font-semibold">{fmtMoney(s.summary.total_irmaa_surcharge ?? 0)}</div>
-                          </>
-                        )}
-                        {hasNIIT && (
-                          <>
-                            <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">NIIT</div>
-                            <div className="font-semibold">{fmtMoney(s.summary.total_niit ?? 0)}</div>
-                          </>
-                        )}
-                        {hasACA && (
-                          <>
-                            <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">ACA penalty</div>
-                            <div className="font-semibold">{fmtMoney(s.summary.total_aca_penalty ?? 0)}</div>
-                          </>
-                        )}
-                        {hasTaxableSS && (
-                          <>
-                            <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">taxable SS</div>
-                            <div className="font-semibold">{fmtMoney(s.summary.total_taxable_ss ?? 0)}</div>
-                          </>
-                        )}
-                        <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">end total</div>
-                        <div className="font-semibold">{fmtMoney(s.summary.ending_total)}</div>
+                        <MatrixCellRow label={hasStateTax || hasIRMAA ? "fed tax" : "tax"} value={s.summary.total_federal_tax} first />
+                        {hasStateTax && <MatrixCellRow label="state tax" value={s.summary.total_state_tax} />}
+                        {hasIRMAA && <MatrixCellRow label="IRMAA" value={s.summary.total_irmaa_surcharge ?? 0} />}
+                        {hasNIIT && <MatrixCellRow label="NIIT" value={s.summary.total_niit ?? 0} />}
+                        {hasACA && <MatrixCellRow label="ACA penalty" value={s.summary.total_aca_penalty ?? 0} />}
+                        {hasTaxableSS && <MatrixCellRow label="taxable SS" value={s.summary.total_taxable_ss ?? 0} />}
+                        <MatrixCellRow label="end total" value={s.summary.ending_total} />
                         <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">
                           T {fmtMoney(s.summary.ending_traditional)} / R {fmtMoney(s.summary.ending_roth)}
                         </div>
