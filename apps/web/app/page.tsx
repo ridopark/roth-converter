@@ -431,6 +431,11 @@ function Results({
     <div>
       <h2 className="text-xl font-semibold mb-3">Comparison: total tax paid and ending balance after horizon</h2>
       <p className="text-xs text-gray-500 mb-2">
+        Each row is an annual conversion strategy (the same dollar amount converted every year of the horizon).
+        Each column is a rate-of-return assumption: <strong>Rate X%</strong> means both Traditional and Roth balances
+        grow X% per year, compounded annually, for the whole horizon. The cell shows the strategy&apos;s outcome at that rate.
+      </p>
+      <p className="text-xs text-gray-500 mb-2">
         Click cells to open draggable drill-in dialogs. Click again to close. Open multiple to compare side-by-side.
       </p>
       <div className="overflow-x-auto mb-6">
