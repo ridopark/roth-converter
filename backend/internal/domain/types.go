@@ -116,8 +116,9 @@ type ScenarioYear struct {
 	EndingRoth          float64 `json:"ending_roth"`
 	EndingTotal         float64 `json:"ending_total"`
 	TaxableSS           float64 `json:"taxable_ss,omitempty"`
-	IRMAASurcharge     float64 `json:"irmaa_surcharge,omitempty"`
+	IRMAASurcharge      float64 `json:"irmaa_surcharge,omitempty"`
 	MAGI                float64 `json:"magi,omitempty"`
+	IRMAATierLabel      string  `json:"irmaa_tier_label,omitempty"`
 }
 
 type ScenarioSummary struct {
@@ -256,6 +257,23 @@ func (t TaxTables) BracketTop(targetRate float64, status FilingStatus) float64 {
 	return 0
 }
 
+// IRMAATierFor returns the IRMAA tier the household falls into for a given
+// MAGI, plus an empty IRMAATier if no tier table exists. The match rule:
+// the first tier whose MaxMAGI >= magi (MaxMAGI == 0 is treated as +inf,
+// the unbounded top tier).
+func (t TaxTables) IRMAATierFor(magi float64, status FilingStatus) IRMAATier {
+	for _, tier := range t.IRMAATiers[status] {
+		max := tier.MaxMAGI
+		if max == 0 {
+			max = math.Inf(1)
+		}
+		if magi <= max {
+			return tier
+		}
+	}
+	return IRMAATier{}
+}
+
 // IRMAA returns the household Medicare Part B+D surcharge for the year given
 // the Modified AGI of two years prior, the filing status, and the user's age
 // in the year the surcharge would apply. Returns 0 when age < 65 (not yet on
@@ -265,21 +283,7 @@ func (t TaxTables) IRMAA(magiTwoYearsAgo float64, status FilingStatus, age int) 
 	if age < 65 {
 		return 0
 	}
-	tiers := t.IRMAATiers[status]
-	if len(tiers) == 0 {
-		return 0
-	}
-	var perPerson float64
-	for _, tier := range tiers {
-		max := tier.MaxMAGI
-		if max == 0 {
-			max = math.Inf(1)
-		}
-		if magiTwoYearsAgo <= max {
-			perPerson = tier.AnnualSurchargePerPerson
-			break
-		}
-	}
+	perPerson := t.IRMAATierFor(magiTwoYearsAgo, status).AnnualSurchargePerPerson
 	if status == FilingMFJ {
 		return perPerson * 2
 	}
@@ -290,13 +294,29 @@ func (t TaxTables) IRMAA(magiTwoYearsAgo float64, status FilingStatus, age int) 
 // IRMAA tier for the given filing status. Returns 0 if no tiers are loaded.
 // The optimizer uses this as a soft cap to keep MAGI below the first surcharge.
 func (t TaxTables) IRMAAStandardTop(status FilingStatus) float64 {
-	tiers := t.IRMAATiers[status]
-	for _, tier := range tiers {
+	for _, tier := range t.IRMAATiers[status] {
 		if tier.AnnualSurchargePerPerson == 0 {
 			return tier.MaxMAGI
 		}
 	}
 	return 0
+}
+
+// MaxConvAtIRMAAStandardTop returns the largest conversion that keeps MAGI at
+// or below the standard IRMAA tier (zero surcharge two years later) given the
+// user's other ordinary income, RMD, and SS benefit. Returns 0 if no IRMAA
+// tier table is loaded for the status.
+func (t TaxTables) MaxConvAtIRMAAStandardTop(otherIncome, rmd, ssBenefit float64, status FilingStatus) float64 {
+	top := t.IRMAAStandardTop(status)
+	if top <= 0 {
+		return 0
+	}
+	ssAtCap := t.TaxableSS(top-rmd, ssBenefit, status)
+	cap := top - otherIncome - rmd - ssAtCap
+	if cap < 0 {
+		return 0
+	}
+	return cap
 }
 
 // TaxableSS returns the portion of Social Security benefits subject to
@@ -332,14 +352,6 @@ func (t TaxTables) TaxableSS(otherIncome, ssBenefit float64, status FilingStatus
 		taxable = cap
 	}
 	return taxable
-}
-
-// MAGI returns the modified-AGI used for IRMAA-tier lookups. We approximate
-// AGI as the sum of ordinary-income components we model (other taxable
-// income, conversion, RMD) plus the taxable portion of Social Security.
-// We do not model tax-exempt interest, so MAGI == AGI for this calculator.
-func MAGI(otherIncome, conversion, rmd, taxableSS float64) float64 {
-	return otherIncome + conversion + rmd + taxableSS
 }
 
 func Round(v float64) float64 {
@@ -385,15 +397,21 @@ func ProjectYear(state YearState, in YearInputs, computeConv func(state YearStat
 
 	taxableSS := in.Tables.TaxableSS(in.OtherIncome+conv+rmd, in.AnnualSSBenefit, in.Status)
 	stdDed := in.Tables.StandardDeduction[in.Status]
-	taxable := in.OtherIncome + conv + rmd + taxableSS
+	// MAGI ~= AGI for this calculator (we don't model tax-exempt interest), so
+	// taxable_income (pre-deduction, post-SS) doubles as the IRMAA MAGI value.
+	magi := in.OtherIncome + conv + rmd + taxableSS
+	taxable := magi
 	afterStd := taxable - stdDed
 	if afterStd < 0 {
 		afterStd = 0
 	}
 	fedTax := in.Tables.OrdinaryTax(afterStd, in.Status)
 	stateTax := afterStd * in.StateRate
-	magi := MAGI(in.OtherIncome, conv, rmd, taxableSS)
 	irmaa := in.Tables.IRMAA(in.MAGITwoYearsAgo, in.Status, state.Age)
+	var irmaaTier string
+	if state.Age >= 65 {
+		irmaaTier = in.Tables.IRMAATierFor(in.MAGITwoYearsAgo, in.Status).Label
+	}
 
 	startingTrad, startingRoth := state.Trad, state.Roth
 
@@ -419,6 +437,7 @@ func ProjectYear(state YearState, in YearInputs, computeConv func(state YearStat
 		TaxableSS:           Round(taxableSS),
 		IRMAASurcharge:      Round(irmaa),
 		MAGI:                Round(magi),
+		IRMAATierLabel:      irmaaTier,
 	}
 	return year, YearState{Trad: nextTrad, Roth: nextRoth, Age: state.Age + 1, CalYear: state.CalYear + 1}
 }

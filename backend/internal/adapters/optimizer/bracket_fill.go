@@ -36,7 +36,6 @@ func (o *BracketFill) Solve(req domain.OptimizeRequest) (domain.OptimizePlan, er
 	r := req.Resolve(tables)
 	stdDed := tables.StandardDeduction[req.FilingStatus]
 	respectIRMAA := req.RespectIRMAAEnabled()
-	irmaaTop := tables.IRMAAStandardTop(req.FilingStatus)
 
 	state := domain.YearState{Trad: r.StartTrad, Roth: r.StartRoth, Age: req.Age, CalYear: r.Year}
 	in := domain.YearInputs{
@@ -52,22 +51,17 @@ func (o *BracketFill) Solve(req domain.OptimizeRequest) (domain.OptimizePlan, er
 
 	fillToBracket := func(s domain.YearState, rmd float64) float64 {
 		// Headroom against the post-deduction federal-bracket target. Taxable
-		// SS gets added to the same post-deduction taxable income, so subtract
-		// it from headroom upfront. (When ssBenefit=0, taxableSS=0.)
+		// SS adds to the same post-deduction taxable income, so subtract it
+		// from headroom upfront (zero when ssBenefit==0).
 		ssAtZeroConv := tables.TaxableSS(req.AnnualOtherIncome+rmd, req.AnnualSSBenefit, req.FilingStatus)
 		baseAfterStd := math.Max(0, req.AnnualOtherIncome+rmd+ssAtZeroConv-stdDed)
 		conv := math.Max(0, bracketTop-baseAfterStd)
 
-		// IRMAA-aware cap: when on Medicare lookback (age >= 63 in the
-		// projection year, since current MAGI seeds a surcharge two years
-		// later) and respect_irmaa is on, hold MAGI under the standard tier.
-		// Conversion increases MAGI 1:1 plus any extra taxable SS unlocked
-		// when provisional income crosses the upper threshold; we approximate
-		// by capping conversion to (irmaaTop - other - rmd - taxableSS-at-cap).
-		if respectIRMAA && s.Age >= 63 && irmaaTop > 0 && conv > 0 {
-			ssAtCap := tables.TaxableSS(irmaaTop-rmd, req.AnnualSSBenefit, req.FilingStatus)
-			capByIRMAA := math.Max(0, irmaaTop-req.AnnualOtherIncome-rmd-ssAtCap)
-			if conv > capByIRMAA {
+		// At age >= 63, this year's MAGI seeds a Medicare surcharge two years
+		// out. Cap conversion at the standard tier so the surcharge stays $0.
+		if respectIRMAA && s.Age >= 63 && conv > 0 {
+			capByIRMAA := tables.MaxConvAtIRMAAStandardTop(req.AnnualOtherIncome, rmd, req.AnnualSSBenefit, req.FilingStatus)
+			if capByIRMAA > 0 && conv > capByIRMAA {
 				conv = capByIRMAA
 			}
 		}

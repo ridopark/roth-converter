@@ -36,6 +36,7 @@ export interface ScenarioYear {
   taxable_ss?: number;
   irmaa_surcharge?: number;
   magi?: number;
+  irmaa_tier_label?: string;
 }
 
 export interface ScenarioSummary {

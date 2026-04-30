@@ -1130,13 +1130,6 @@ interface ChartRow {
   selected_irmaa_tier?: string;
 }
 
-function tierForMAGI(magi: number, tiers: IRMAATier[]): string | undefined {
-  for (const t of tiers) {
-    if (t.max_magi <= 0 || magi <= t.max_magi) return t.label;
-  }
-  return tiers.length > 0 ? tiers[tiers.length - 1].label : undefined;
-}
-
 function BracketChart({
   baseline,
   selected,
@@ -1153,22 +1146,16 @@ function BracketChart({
   const data: ChartRow[] = useMemo(() => {
     return baseline.years.map((y, i) => {
       const sy = selected?.years[i];
-      const baseMAGI = y.magi ?? y.taxable_income;
-      const selMAGI = sy ? (sy.magi ?? sy.taxable_income) : undefined;
       return {
         year: y.calendar_year,
         age: y.age,
         baseline: Math.max(0, y.taxable_income - stdDeduction),
         selected: sy ? Math.max(0, sy.taxable_income - stdDeduction) : null,
-        baseline_irmaa_tier:
-          y.age >= 65 && irmaaTiers ? tierForMAGI(baseMAGI, irmaaTiers) : undefined,
-        selected_irmaa_tier:
-          sy && sy.age >= 65 && irmaaTiers && selMAGI !== undefined
-            ? tierForMAGI(selMAGI, irmaaTiers)
-            : undefined,
+        baseline_irmaa_tier: y.irmaa_tier_label,
+        selected_irmaa_tier: sy?.irmaa_tier_label,
       };
     });
-  }, [baseline, selected, stdDeduction, irmaaTiers]);
+  }, [baseline, selected, stdDeduction]);
 
   const refLines = useMemo(() => brackets.filter((b) => b.max > 0), [brackets]);
   // IRMAA tier tops shifted to post-std-deduction so they share the chart's

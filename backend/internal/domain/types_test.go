@@ -1,7 +1,6 @@
 package domain
 
 import (
-	"math"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -107,11 +106,6 @@ func TestTaxableSS_BetweenThresholdsHalf(t *testing.T) {
 	assert.InDelta(t, 2500, got, 0.01)
 }
 
-func TestMAGI(t *testing.T) {
-	assert.InDelta(t, 100000, MAGI(50000, 25000, 15000, 10000), 0.01)
-	assert.InDelta(t, 0, MAGI(0, 0, 0, 0), 0.01)
-}
-
 func TestIRMAAStandardTop(t *testing.T) {
 	tt := tablesWithIRMAAandSS()
 	assert.InDelta(t, 218000, tt.IRMAAStandardTop(FilingMFJ), 0.01)
@@ -190,5 +184,3 @@ func TestRespectIRMAAEnabled_ExplicitTrue(t *testing.T) {
 	assert.True(t, r.RespectIRMAAEnabled())
 }
 
-// math.Inf used elsewhere; reference here so the import is exercised.
-var _ = math.Inf
