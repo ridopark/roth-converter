@@ -142,13 +142,16 @@ export default function Home() {
 
   return (
     <main className="mx-auto max-w-7xl p-6">
-      <h1 className="text-3xl font-bold mb-2">Roth Converter</h1>
-      <p className="text-gray-600 mb-6 text-sm">
+      <div className="flex items-start justify-between mb-2">
+        <h1 className="text-3xl font-bold">Roth Converter</h1>
+        <ThemeToggle />
+      </div>
+      <p className="text-gray-600 dark:text-gray-300 mb-6 text-sm">
         Pick a few annual conversion amounts. See the tax cost and 401(k) balance over the next 10 years across multiple rate-of-return scenarios.
       </p>
 
       <form onSubmit={submit} className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
-        <fieldset className="border rounded p-4">
+        <fieldset className="border border-gray-200 dark:border-gray-700 rounded p-4">
           <legend className="font-semibold px-2">You</legend>
           <Field
             label="Age"
@@ -180,7 +183,7 @@ export default function Home() {
             }
           >
             <select
-              className="border rounded p-1 w-full"
+              className="border border-gray-300 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100 rounded p-1 w-full"
               value={form.filing_status}
               onChange={(e) => setForm({ ...form, filing_status: e.target.value as FilingStatus })}
             >
@@ -227,7 +230,7 @@ export default function Home() {
           </Field>
         </fieldset>
 
-        <fieldset className="border rounded p-4">
+        <fieldset className="border border-gray-200 dark:border-gray-700 rounded p-4">
           <legend className="font-semibold px-2">401(k)</legend>
           <Field
             label="Traditional 401(k) balance"
@@ -247,15 +250,15 @@ export default function Home() {
               onChange={(v) => setForm({ ...form, roth_balance: v })}
             />
           </Field>
-          <div className="rounded bg-amber-50 border border-amber-200 px-3 py-2 mb-3">
-            <div className="text-[11px] uppercase tracking-wide text-amber-900/70">
+          <div className="rounded bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700 px-3 py-2 mb-3">
+            <div className="text-[11px] uppercase tracking-wide text-amber-900/70 dark:text-amber-200/80">
               Total 401(k)
             </div>
-            <div className="text-lg font-bold text-amber-900">
+            <div className="text-lg font-bold text-amber-900 dark:text-amber-100">
               {fmtMoney(form.traditional_balance + form.roth_balance)}
             </div>
             {form.traditional_balance + form.roth_balance > 0 && (
-              <div className="text-xs text-amber-900/80 mt-0.5">
+              <div className="text-xs text-amber-900/80 dark:text-amber-200/80 mt-0.5">
                 Traditional{" "}
                 {(
                   (form.traditional_balance /
@@ -289,7 +292,7 @@ export default function Home() {
           </label>
         </fieldset>
 
-        <fieldset className="border rounded p-4">
+        <fieldset className="border border-gray-200 dark:border-gray-700 rounded p-4">
           <legend className="font-semibold px-2">Scenarios</legend>
           <Field
             label="Horizon (years)"
@@ -324,7 +327,7 @@ export default function Home() {
           >
             <input
               type="text"
-              className="border rounded p-1 w-full"
+              className="border border-gray-300 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100 rounded p-1 w-full"
               value={form.rates_str}
               onChange={(e) => setForm({ ...form, rates_str: e.target.value })}
               placeholder="5, 7, 9, 11"
@@ -354,7 +357,7 @@ export default function Home() {
           >
             <input
               type="text"
-              className="border rounded p-1 w-full"
+              className="border border-gray-300 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100 rounded p-1 w-full"
               value={form.conversion_cases_str}
               onChange={(e) => setForm({ ...form, conversion_cases_str: e.target.value })}
               placeholder="25000, 50000, 100000"
@@ -370,7 +373,7 @@ export default function Home() {
         </fieldset>
       </form>
 
-      {err && <div className="rounded bg-red-100 text-red-800 p-3 mb-4">{err}</div>}
+      {err && <div className="rounded bg-red-100 dark:bg-red-900/40 text-red-800 dark:text-red-200 p-3 mb-4">{err}</div>}
 
       {resp && (
         <Results
@@ -386,6 +389,34 @@ export default function Home() {
   );
 }
 
+function ThemeToggle() {
+  const [dark, setDark] = useState(false);
+
+  useEffect(() => {
+    setDark(document.documentElement.classList.contains("dark"));
+  }, []);
+
+  function toggle() {
+    const next = !dark;
+    setDark(next);
+    document.documentElement.classList.toggle("dark", next);
+    try {
+      localStorage.setItem("theme", next ? "dark" : "light");
+    } catch {}
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={toggle}
+      aria-label={dark ? "Switch to light mode" : "Switch to dark mode"}
+      className="px-3 py-1.5 rounded border border-gray-300 dark:border-gray-600 text-sm bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200 hover:bg-amber-50 dark:hover:bg-gray-700"
+    >
+      {dark ? "Light mode" : "Dark mode"}
+    </button>
+  );
+}
+
 function Field({
   label,
   hint,
@@ -397,7 +428,7 @@ function Field({
 }) {
   return (
     <label className="block mb-3">
-      <span className="block text-xs font-medium text-gray-700 mb-1">{label}</span>
+      <span className="block text-xs font-medium text-gray-700 dark:text-gray-200 mb-1">{label}</span>
       {children}
       {hint && <Hint>{hint}</Hint>}
     </label>
@@ -405,14 +436,14 @@ function Field({
 }
 
 function Hint({ children }: { children: React.ReactNode }) {
-  return <span className="mt-1 block text-[11px] leading-snug text-gray-500">{children}</span>;
+  return <span className="mt-1 block text-[11px] leading-snug text-gray-500 dark:text-gray-400">{children}</span>;
 }
 
 function NumberInput({ value, onChange }: { value: number; onChange: (v: number) => void }) {
   return (
     <input
       type="number"
-      className="border rounded p-1 w-full"
+      className="border border-gray-300 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100 rounded p-1 w-full"
       value={value}
       onChange={(e) => onChange(Number(e.target.value))}
     />
@@ -454,26 +485,26 @@ function Results({
   return (
     <div>
       <h2 className="text-xl font-semibold mb-3">Comparison: total tax paid and ending balance after horizon</h2>
-      <p className="text-xs text-gray-500 mb-2">
+      <p className="text-xs text-gray-500 dark:text-gray-400 mb-2">
         Each row is an annual conversion strategy (the same dollar amount converted every year of the horizon).
         Each column is a rate-of-return assumption: <strong>Rate X%</strong> means both Traditional and Roth balances
         grow X% per year, compounded annually, for the whole horizon. The cell shows the strategy&apos;s outcome at that rate.
       </p>
-      <p className="text-xs text-gray-500 mb-2">
+      <p className="text-xs text-gray-500 dark:text-gray-400 mb-2">
         Inside each cell: <strong>tax</strong> is the total federal tax paid across the horizon (sum of every
         year&apos;s federal tax). <strong>end total</strong> is the combined 401(k) balance at the end of the horizon.
         The bottom line splits that ending balance into <strong>T</strong> (Traditional, still pre-tax) and{" "}
         <strong>R</strong> (Roth, already taxed - withdrawals are tax-free). A successful Roth-conversion strategy
         moves money from T to R while keeping the total competitive with the baseline.
       </p>
-      <p className="text-xs text-gray-500 mb-2">
+      <p className="text-xs text-gray-500 dark:text-gray-400 mb-2">
         Click cells to open draggable drill-in dialogs. Click again to close. Open multiple to compare side-by-side.
       </p>
 
       <OverviewCharts resp={resp} rates={rates} cases={cases} find={find} />
 
       <div className="overflow-x-auto mb-6">
-        <table className="min-w-full text-sm border">
+        <table className="min-w-full text-sm border border-gray-200 dark:border-gray-700">
           <thead className="bg-amber-500 text-white">
             <tr>
               <th className="p-2 border border-amber-600 text-left font-semibold">Annual conversion</th>
@@ -487,30 +518,30 @@ function Results({
           <tbody>
             {cases.map((c) => (
               <tr key={c}>
-                <td className="p-2 border font-semibold">{fmtMoney(c)}/yr</td>
+                <td className="p-2 border border-gray-200 dark:border-gray-700 font-semibold dark:text-gray-100">{fmtMoney(c)}/yr</td>
                 {rates.map((r) => {
                   const s = find(r, c);
-                  if (!s) return <td key={r} className="p-2 border">-</td>;
+                  if (!s) return <td key={r} className="p-2 border border-gray-200 dark:border-gray-700 dark:text-gray-100">-</td>;
                   const open = isOpen(r, c);
                   return (
                     <td
                       key={r}
-                      className={`p-0 border ${open ? "ring-2 ring-amber-500 ring-inset" : ""}`}
+                      className={`p-0 border border-gray-200 dark:border-gray-700 ${open ? "ring-2 ring-amber-500 ring-inset" : ""}`}
                     >
                       <button
                         type="button"
                         onClick={() => onToggle(r, c)}
                         aria-pressed={open}
                         aria-label={`Open drill-in for ${fmtMoney(c)} per year at ${fmtPct(r)}`}
-                        className={`w-full text-left p-2 cursor-pointer focus:outline-none focus-visible:bg-amber-50 hover:bg-amber-50 ${
-                          open ? "bg-amber-50" : ""
+                        className={`w-full text-left p-2 cursor-pointer focus:outline-none focus-visible:bg-amber-50 dark:focus-visible:bg-amber-900/30 hover:bg-amber-50 dark:hover:bg-amber-900/30 dark:text-gray-100 ${
+                          open ? "bg-amber-50 dark:bg-amber-900/30" : ""
                         }`}
                       >
-                        <div className="text-xs text-gray-500">tax</div>
+                        <div className="text-xs text-gray-500 dark:text-gray-400">tax</div>
                         <div className="font-semibold">{fmtMoney(s.summary.total_federal_tax)}</div>
-                        <div className="text-xs text-gray-500 mt-1">end total</div>
+                        <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">end total</div>
                         <div className="font-semibold">{fmtMoney(s.summary.ending_total)}</div>
-                        <div className="text-xs text-gray-500 mt-1">
+                        <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">
                           T {fmtMoney(s.summary.ending_traditional)} / R {fmtMoney(s.summary.ending_roth)}
                         </div>
                       </button>
@@ -599,7 +630,7 @@ function OverviewCharts({
   return (
     <div className="mb-6">
       <div className="flex items-center gap-2 mb-2 flex-wrap">
-        <span className="text-xs text-gray-600">Compare strategies at rate:</span>
+        <span className="text-xs text-gray-600 dark:text-gray-300">Compare strategies at rate:</span>
         {rates.map((r) => (
           <button
             key={r}
@@ -608,7 +639,7 @@ function OverviewCharts({
             className={`px-2 py-0.5 text-xs rounded border ${
               chartRate === r
                 ? "bg-amber-500 text-white border-amber-600"
-                : "bg-white text-gray-700 border-gray-300 hover:bg-amber-50"
+                : "bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200 border-gray-300 dark:border-gray-600 hover:bg-amber-50 dark:hover:bg-gray-700"
             }`}
           >
             {fmtPct(r)}
@@ -634,8 +665,8 @@ function SeriesChart({
   seriesKeys: string[];
 }) {
   return (
-    <div className="border border-amber-200 rounded p-2 bg-white">
-      <h3 className="text-xs font-semibold text-amber-900 mb-1">{title}</h3>
+    <div className="border border-amber-200 dark:border-amber-800 rounded p-2 bg-white dark:bg-gray-900">
+      <h3 className="text-xs font-semibold text-amber-900 dark:text-amber-200 mb-1">{title}</h3>
       <ResponsiveContainer width="100%" height={220}>
         <LineChart data={data} margin={{ top: 8, right: 12, left: 4, bottom: 4 }}>
           <CartesianGrid strokeDasharray="3 3" stroke="#eee" />
@@ -703,7 +734,7 @@ function DrillDialog({
 
   return (
     <div
-      className="fixed bg-white border-2 border-amber-300 rounded shadow-2xl flex flex-col"
+      className="fixed bg-white dark:bg-gray-900 border-2 border-amber-300 dark:border-amber-700 rounded shadow-2xl flex flex-col"
       style={{
         top: dialog.y,
         left: dialog.x,
@@ -787,7 +818,7 @@ function BracketChart({
   }, [data, refLines]);
 
   return (
-    <div className="border border-amber-200 rounded p-3 mb-6 bg-white">
+    <div className="border border-amber-200 dark:border-amber-800 rounded p-3 mb-6 bg-white dark:bg-gray-900">
       <ResponsiveContainer width="100%" height={320}>
         <LineChart data={data} margin={{ top: 12, right: 32, left: 16, bottom: 8 }}>
           <CartesianGrid strokeDasharray="3 3" stroke="#eee" />
@@ -841,7 +872,7 @@ function BracketChart({
           )}
         </LineChart>
       </ResponsiveContainer>
-      <p className="text-[11px] text-gray-500 mt-2">
+      <p className="text-[11px] text-gray-500 dark:text-gray-400 mt-2">
         Y-axis: post-deduction taxable income (taxable_income minus standard deduction, floored at 0).
         Dashed lines show federal bracket tops for the chosen filing status.
       </p>
@@ -852,12 +883,12 @@ function BracketChart({
 function YearTable({ scenario }: { scenario: Scenario }) {
   return (
     <div>
-      <p className="text-sm text-gray-700 mb-2">
+      <p className="text-sm text-gray-700 dark:text-gray-200 mb-2">
         Total tax <strong>{fmtMoney(scenario.summary.total_federal_tax)}</strong>, end balance{" "}
         <strong>{fmtMoney(scenario.summary.ending_total)}</strong>
       </p>
       <div className="overflow-x-auto">
-        <table className="min-w-full text-sm border border-amber-200">
+        <table className="min-w-full text-sm border border-amber-200 dark:border-amber-800">
           <thead className="bg-amber-500 text-white">
             <tr>
               <th className="p-2 text-left font-semibold">Year</th>
@@ -873,16 +904,16 @@ function YearTable({ scenario }: { scenario: Scenario }) {
           </thead>
           <tbody>
             {scenario.years.map((y) => (
-              <tr key={y.year_index} className="odd:bg-white even:bg-amber-50/40 hover:bg-amber-50">
-                <td className="p-2 border-b border-amber-100">{y.calendar_year}</td>
-                <td className="p-2 border-b border-amber-100">{y.age}</td>
-                <td className="p-2 border-b border-amber-100">{y.rmd > 0 ? fmtMoney(y.rmd) : "-"}</td>
-                <td className="p-2 border-b border-amber-100">{y.conversion > 0 ? fmtMoney(y.conversion) : "-"}</td>
-                <td className="p-2 border-b border-amber-100">{fmtMoney(y.taxable_income)}</td>
-                <td className="p-2 border-b border-amber-100">{fmtMoney(y.federal_tax)}</td>
-                <td className="p-2 border-b border-amber-100">{fmtMoney(y.ending_traditional)}</td>
-                <td className="p-2 border-b border-amber-100">{fmtMoney(y.ending_roth)}</td>
-                <td className="p-2 border-b border-amber-100 font-semibold">{fmtMoney(y.ending_total)}</td>
+              <tr key={y.year_index} className="odd:bg-white dark:odd:bg-gray-900 even:bg-amber-50/40 dark:even:bg-amber-900/20 hover:bg-amber-50 dark:hover:bg-amber-900/30 dark:text-gray-100">
+                <td className="p-2 border-b border-amber-100 dark:border-amber-800/40">{y.calendar_year}</td>
+                <td className="p-2 border-b border-amber-100 dark:border-amber-800/40">{y.age}</td>
+                <td className="p-2 border-b border-amber-100 dark:border-amber-800/40">{y.rmd > 0 ? fmtMoney(y.rmd) : "-"}</td>
+                <td className="p-2 border-b border-amber-100 dark:border-amber-800/40">{y.conversion > 0 ? fmtMoney(y.conversion) : "-"}</td>
+                <td className="p-2 border-b border-amber-100 dark:border-amber-800/40">{fmtMoney(y.taxable_income)}</td>
+                <td className="p-2 border-b border-amber-100 dark:border-amber-800/40">{fmtMoney(y.federal_tax)}</td>
+                <td className="p-2 border-b border-amber-100 dark:border-amber-800/40">{fmtMoney(y.ending_traditional)}</td>
+                <td className="p-2 border-b border-amber-100 dark:border-amber-800/40">{fmtMoney(y.ending_roth)}</td>
+                <td className="p-2 border-b border-amber-100 dark:border-amber-800/40 font-semibold">{fmtMoney(y.ending_total)}</td>
               </tr>
             ))}
           </tbody>
