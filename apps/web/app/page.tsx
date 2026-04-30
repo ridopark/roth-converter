@@ -295,7 +295,7 @@ export default function Home() {
         ))}
       </div>
 
-      <form onSubmit={submit} className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+      <form onSubmit={submit} className="flex flex-col gap-6 mb-8">
         <fieldset className="border border-gray-200 dark:border-gray-700 rounded p-4">
           <legend className="font-semibold px-2">You</legend>
           <Field
@@ -1060,9 +1060,14 @@ function Results({
     (s) => (s.summary.total_aca_penalty ?? 0) > 0,
   );
 
+  const headingRef = useRef<HTMLHeadingElement>(null);
+  useEffect(() => {
+    headingRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, [resp]);
+
   return (
     <div>
-      <h2 className="text-xl font-semibold mb-3">Comparison: total tax paid and ending balance after horizon</h2>
+      <h2 ref={headingRef} className="text-xl font-semibold mb-3 scroll-mt-4">Comparison: total tax paid and ending balance after horizon</h2>
       <p className="text-xs text-gray-500 dark:text-gray-400 mb-2">
         Each row is an annual conversion strategy (the same dollar amount converted every year of the horizon).
         Each column is a rate-of-return assumption: <strong>Rate X%</strong> means both Traditional and Roth balances
