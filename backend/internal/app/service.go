@@ -28,12 +28,14 @@ func Wire(cfg config.Config, log zerolog.Logger) (*Service, func(), error) {
 	} else {
 		note = notifier.Noop{}
 	}
+	bracket := optimizer.New(tables, log)
+	dp := optimizer.NewDP(tables, log)
 	svc := &Service{
 		Cfg:       cfg,
 		Log:       log,
 		Tables:    tables,
 		Matrix:    solver.New(tables, log),
-		Optimizer: optimizer.New(tables, log),
+		Optimizer: optimizer.NewRouter(bracket, dp),
 		Notifier:  note,
 	}
 	cleanup := func() {}
