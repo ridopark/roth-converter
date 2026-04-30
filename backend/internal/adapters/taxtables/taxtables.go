@@ -44,6 +44,9 @@ type rawTables struct {
 	States                  *rawStates                 `json:"states"`
 	IRMAATiers              map[string][]rawIRMAATier  `json:"irmaa_tiers"`
 	SSProvisionalThresholds map[string]rawSSThreshold  `json:"ss_provisional_thresholds"`
+	NIITThreshold           map[string]float64         `json:"niit_threshold"`
+	NIITRate                float64                    `json:"niit_rate"`
+	ACAFpl400Pct2026        map[string]float64         `json:"aca_fpl_400pct_2026"`
 }
 
 type rawStates struct {
@@ -82,6 +85,9 @@ func (r *Repo) load(year int) (domain.TaxTables, error) {
 		NoTaxStates:       map[string]bool{},
 		IRMAATiers:        map[domain.FilingStatus][]domain.IRMAATier{},
 		SSThresholds:      map[domain.FilingStatus]domain.SSThreshold{},
+		NIITThresholds:    map[domain.FilingStatus]float64{},
+		NIITRate:          raw.NIITRate,
+		AcaFPL400Pct:      map[int]float64{},
 	}
 
 	if raw.States != nil {
@@ -135,6 +141,20 @@ func (r *Repo) load(year int) (domain.TaxTables, error) {
 
 	for status, t := range raw.SSProvisionalThresholds {
 		out.SSThresholds[domain.FilingStatus(status)] = domain.SSThreshold{Lower: t.Lower, Upper: t.Upper}
+	}
+
+	for status, v := range raw.NIITThreshold {
+		out.NIITThresholds[domain.FilingStatus(status)] = v
+	}
+
+	for k, v := range raw.ACAFpl400Pct2026 {
+		if k == "per_additional" {
+			out.AcaFPLPerExtra = v
+			continue
+		}
+		if size, err := strconv.Atoi(k); err == nil {
+			out.AcaFPL400Pct[size] = v
+		}
 	}
 
 	return out, nil

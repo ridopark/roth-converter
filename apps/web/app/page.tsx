@@ -42,6 +42,9 @@ interface FormState {
   filing_status: FilingStatus;
   annual_other_income: number;
   annual_ss_benefit: number;
+  taxable_div_ltcg: number;
+  aca_household_size: number;
+  aca_annual_premium: number;
   horizon_years: number;
   rates_str: string;
   conversion_cases_str: string;
@@ -51,6 +54,11 @@ interface FormState {
   rate_of_return: number;
   target_bracket_rate: number;
   respect_irmaa: boolean;
+  strategy: "bracket_fill" | "dp";
+  per_year_advanced: boolean;
+  other_income_per_year: number[];
+  ss_benefit_per_year: number[];
+  rates_per_year: number[];
 }
 
 const DEFAULT_FORM: FormState = {
@@ -60,6 +68,9 @@ const DEFAULT_FORM: FormState = {
   filing_status: "mfj",
   annual_other_income: 50_000,
   annual_ss_benefit: 0,
+  taxable_div_ltcg: 0,
+  aca_household_size: 0,
+  aca_annual_premium: 0,
   horizon_years: 10,
   rates_str: "5, 7, 9, 11",
   conversion_cases_str: "0, 25000, 50000, 100000, 200000",
@@ -69,6 +80,11 @@ const DEFAULT_FORM: FormState = {
   rate_of_return: 0.07,
   target_bracket_rate: 0.22,
   respect_irmaa: true,
+  strategy: "bracket_fill",
+  per_year_advanced: false,
+  other_income_per_year: [],
+  ss_benefit_per_year: [],
+  rates_per_year: [],
 };
 
 interface DialogState {
@@ -190,12 +206,21 @@ export default function Home() {
           filing_status: form.filing_status,
           annual_other_income: form.annual_other_income,
           annual_ss_benefit: form.annual_ss_benefit,
+          taxable_div_ltcg: form.taxable_div_ltcg,
+          aca_household_size: form.aca_household_size,
+          aca_annual_premium: form.aca_annual_premium,
           horizon_years: form.horizon_years,
           rates_of_return: rates,
           conversion_cases: cases,
           include_rmd: form.include_rmd,
           tax_year: form.tax_year,
           state: form.state,
+          ...(form.per_year_advanced && form.other_income_per_year.length > 0
+            ? { other_income_per_year: form.other_income_per_year.slice(0, form.horizon_years) }
+            : {}),
+          ...(form.per_year_advanced && form.ss_benefit_per_year.length > 0
+            ? { ss_benefit_per_year: form.ss_benefit_per_year.slice(0, form.horizon_years) }
+            : {}),
         });
         setResp(r);
         setPlan(null);
@@ -210,6 +235,9 @@ export default function Home() {
           filing_status: form.filing_status,
           annual_other_income: form.annual_other_income,
           annual_ss_benefit: form.annual_ss_benefit,
+          taxable_div_ltcg: form.taxable_div_ltcg,
+          aca_household_size: form.aca_household_size,
+          aca_annual_premium: form.aca_annual_premium,
           horizon_years: form.horizon_years,
           rate_of_return: form.rate_of_return,
           target_bracket_rate: form.target_bracket_rate,
@@ -217,6 +245,16 @@ export default function Home() {
           tax_year: form.tax_year,
           state: form.state,
           respect_irmaa: form.respect_irmaa,
+          strategy: form.strategy,
+          ...(form.per_year_advanced && form.other_income_per_year.length > 0
+            ? { other_income_per_year: form.other_income_per_year.slice(0, form.horizon_years) }
+            : {}),
+          ...(form.per_year_advanced && form.ss_benefit_per_year.length > 0
+            ? { ss_benefit_per_year: form.ss_benefit_per_year.slice(0, form.horizon_years) }
+            : {}),
+          ...(form.per_year_advanced && form.rates_per_year.length > 0
+            ? { rates_per_year: form.rates_per_year.slice(0, form.horizon_years) }
+            : {}),
         });
         setPlan(p);
         setResp(null);
@@ -349,6 +387,61 @@ export default function Home() {
               onChange={(v) => setForm({ ...form, annual_ss_benefit: v })}
             />
           </Field>
+          <Field
+            label="Investment income (LTCG + qualified div, $/yr)"
+            hint={
+              <>
+                Annual long-term capital gains and qualified dividends from
+                taxable accounts. Held flat unless you enable per-year overrides.
+                v1 includes this in MAGI (so it gates IRMAA, NIIT, and ACA cliff)
+                but does not separately compute LTCG bracket tax. Set to 0 if
+                investment income is held in tax-deferred accounts.
+              </>
+            }
+          >
+            <NumberInput
+              value={form.taxable_div_ltcg}
+              onChange={(v) => setForm({ ...form, taxable_div_ltcg: v })}
+            />
+          </Field>
+          {form.age < 65 && (
+            <>
+              <Field
+                label="Pre-Medicare ACA household size"
+                hint={
+                  <>
+                    If you (or anyone in your household) buys ACA marketplace
+                    health insurance, set this to your household size. v1 models
+                    the 400%-FPL cliff: crossing it forfeits the full premium tax
+                    credit. Leave at 0 to skip ACA modeling entirely.
+                  </>
+                }
+              >
+                <NumberInput
+                  value={form.aca_household_size}
+                  onChange={(v) => setForm({ ...form, aca_household_size: v })}
+                />
+              </Field>
+              {form.aca_household_size > 0 && (
+                <Field
+                  label="ACA estimated annual premium ($)"
+                  hint={
+                    <>
+                      Estimated full-price annual ACA premium for your household
+                      (no subsidy). National averages run roughly $7,200/single
+                      and $14,400/household. Used as the cliff penalty if MAGI
+                      crosses 400% FPL.
+                    </>
+                  }
+                >
+                  <NumberInput
+                    value={form.aca_annual_premium}
+                    onChange={(v) => setForm({ ...form, aca_annual_premium: v })}
+                  />
+                </Field>
+              )}
+            </>
+          )}
           <Field
             label="Tax year (for brackets)"
             hint="Year of the tax tables to use (default 2026). v1 applies the same brackets every projected year."
@@ -558,6 +651,38 @@ export default function Home() {
           )}
           {mode === "plan" && (
             <>
+              <Field
+                label="Strategy"
+                hint={
+                  <>
+                    <strong>Bracket fill</strong> is the v1 myopic optimizer:
+                    every year, fill the target federal bracket subject to the
+                    IRMAA cap. <strong>Multi-year DP</strong> (v2) searches the
+                    space of conversion paths and minimizes total federal tax +
+                    state tax + IRMAA + NIIT + ACA penalty over the horizon, plus
+                    a terminal cost on the remaining Traditional balance. DP
+                    typically wins when there are cliffs (IRMAA tier crossings,
+                    pre-RMD low-income years).
+                  </>
+                }
+              >
+                <div className="flex gap-1">
+                  {(["bracket_fill", "dp"] as const).map((s) => (
+                    <button
+                      key={s}
+                      type="button"
+                      onClick={() => setForm({ ...form, strategy: s })}
+                      className={`px-2 py-0.5 text-xs rounded border ${
+                        form.strategy === s
+                          ? "bg-amber-500 text-white border-amber-600"
+                          : "bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200 border-gray-300 dark:border-gray-600 hover:bg-amber-50 dark:hover:bg-gray-700"
+                      }`}
+                    >
+                      {s === "bracket_fill" ? "Bracket fill (greedy)" : "Multi-year DP"}
+                    </button>
+                  ))}
+                </div>
+              </Field>
               <label className="flex items-start gap-2 text-sm mb-3">
                 <input
                   type="checkbox"
@@ -631,6 +756,7 @@ export default function Home() {
               </Field>
             </>
           )}
+          <PerYearAdvanced form={form} setForm={setForm} mode={mode} />
           <button
             type="submit"
             disabled={loading}
@@ -747,6 +873,136 @@ function Hint({ children }: { children: React.ReactNode }) {
   return <span className="mt-1 block text-[11px] leading-snug text-gray-500 dark:text-gray-400">{children}</span>;
 }
 
+function MatrixCellRow({ label, value, first }: { label: string; value: number; first?: boolean }) {
+  return (
+    <>
+      <div className={`text-xs text-gray-500 dark:text-gray-400${first ? "" : " mt-1"}`}>{label}</div>
+      <div className="font-semibold">{fmtMoney(value)}</div>
+    </>
+  );
+}
+
+function PerYearAdvanced({
+  form,
+  setForm,
+  mode,
+}: {
+  form: FormState;
+  setForm: (f: FormState) => void;
+  mode: Mode;
+}) {
+  function ensureLength(arr: number[], scalar: number): number[] {
+    const out = arr.slice(0, form.horizon_years);
+    while (out.length < form.horizon_years) out.push(scalar);
+    return out;
+  }
+
+  function toggle(checked: boolean) {
+    if (checked) {
+      setForm({
+        ...form,
+        per_year_advanced: true,
+        other_income_per_year: ensureLength(form.other_income_per_year, form.annual_other_income),
+        ss_benefit_per_year: ensureLength(form.ss_benefit_per_year, form.annual_ss_benefit),
+        rates_per_year: ensureLength(form.rates_per_year, form.rate_of_return),
+      });
+    } else {
+      setForm({ ...form, per_year_advanced: false });
+    }
+  }
+
+  function setAt(arr: number[], i: number, v: number): number[] {
+    const out = ensureLength(arr, 0);
+    out[i] = v;
+    return out;
+  }
+
+  return (
+    <div className="mt-3 mb-3">
+      <label className="flex items-start gap-2 text-sm">
+        <input
+          type="checkbox"
+          className="mt-0.5"
+          checked={form.per_year_advanced}
+          onChange={(e) => toggle(e.target.checked)}
+        />
+        <span>
+          <span>Advanced: edit per-year inputs</span>
+          <Hint>
+            Override the scalar Other income / SS benefit{mode === "plan" ? " / Rate of return" : ""}
+            {" "}with one value per horizon year. Defaults populate from the
+            scalar values above. Useful when pension or SS starts mid-horizon, or
+            for sequence-of-returns scenarios.
+          </Hint>
+        </span>
+      </label>
+      {form.per_year_advanced && (
+        <div className="overflow-x-auto mt-2 border border-gray-200 dark:border-gray-700 rounded p-2">
+          <table className="text-xs">
+            <thead>
+              <tr className="text-left text-gray-500 dark:text-gray-400">
+                <th className="pr-2">Year</th>
+                <th className="pr-2">Other income</th>
+                <th className="pr-2">SS benefit</th>
+                {mode === "plan" && <th className="pr-2">Rate of return (%)</th>}
+              </tr>
+            </thead>
+            <tbody>
+              {Array.from({ length: form.horizon_years }, (_, i) => i).map((i) => (
+                <tr key={i}>
+                  <td className="pr-2 align-middle">{form.tax_year + i}</td>
+                  <td className="pr-2">
+                    <input
+                      type="number"
+                      className="border border-gray-300 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100 rounded p-1 w-24"
+                      value={form.other_income_per_year[i] ?? form.annual_other_income}
+                      onChange={(e) =>
+                        setForm({
+                          ...form,
+                          other_income_per_year: setAt(form.other_income_per_year, i, Number(e.target.value)),
+                        })
+                      }
+                    />
+                  </td>
+                  <td className="pr-2">
+                    <input
+                      type="number"
+                      className="border border-gray-300 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100 rounded p-1 w-24"
+                      value={form.ss_benefit_per_year[i] ?? form.annual_ss_benefit}
+                      onChange={(e) =>
+                        setForm({
+                          ...form,
+                          ss_benefit_per_year: setAt(form.ss_benefit_per_year, i, Number(e.target.value)),
+                        })
+                      }
+                    />
+                  </td>
+                  {mode === "plan" && (
+                    <td className="pr-2">
+                      <input
+                        type="number"
+                        step={0.1}
+                        className="border border-gray-300 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100 rounded p-1 w-20"
+                        value={(((form.rates_per_year[i] ?? form.rate_of_return) * 100)).toFixed(1)}
+                        onChange={(e) =>
+                          setForm({
+                            ...form,
+                            rates_per_year: setAt(form.rates_per_year, i, Number(e.target.value) / 100),
+                          })
+                        }
+                      />
+                    </td>
+                  )}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function NumberInput({ value, onChange }: { value: number; onChange: (v: number) => void }) {
   return (
     <input
@@ -796,6 +1052,12 @@ function Results({
   );
   const hasTaxableSS = resp.scenarios.some(
     (s) => (s.summary.total_taxable_ss ?? 0) > 0,
+  );
+  const hasNIIT = resp.scenarios.some(
+    (s) => (s.summary.total_niit ?? 0) > 0,
+  );
+  const hasACA = resp.scenarios.some(
+    (s) => (s.summary.total_aca_penalty ?? 0) > 0,
   );
 
   return (
@@ -853,30 +1115,13 @@ function Results({
                           open ? "bg-amber-50 dark:bg-amber-900/30" : ""
                         }`}
                       >
-                        <div className="text-xs text-gray-500 dark:text-gray-400">
-                          {hasStateTax || hasIRMAA ? "fed tax" : "tax"}
-                        </div>
-                        <div className="font-semibold">{fmtMoney(s.summary.total_federal_tax)}</div>
-                        {hasStateTax && (
-                          <>
-                            <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">state tax</div>
-                            <div className="font-semibold">{fmtMoney(s.summary.total_state_tax)}</div>
-                          </>
-                        )}
-                        {hasIRMAA && (
-                          <>
-                            <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">IRMAA</div>
-                            <div className="font-semibold">{fmtMoney(s.summary.total_irmaa_surcharge ?? 0)}</div>
-                          </>
-                        )}
-                        {hasTaxableSS && (
-                          <>
-                            <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">taxable SS</div>
-                            <div className="font-semibold">{fmtMoney(s.summary.total_taxable_ss ?? 0)}</div>
-                          </>
-                        )}
-                        <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">end total</div>
-                        <div className="font-semibold">{fmtMoney(s.summary.ending_total)}</div>
+                        <MatrixCellRow label={hasStateTax || hasIRMAA ? "fed tax" : "tax"} value={s.summary.total_federal_tax} first />
+                        {hasStateTax && <MatrixCellRow label="state tax" value={s.summary.total_state_tax} />}
+                        {hasIRMAA && <MatrixCellRow label="IRMAA" value={s.summary.total_irmaa_surcharge ?? 0} />}
+                        {hasNIIT && <MatrixCellRow label="NIIT" value={s.summary.total_niit ?? 0} />}
+                        {hasACA && <MatrixCellRow label="ACA penalty" value={s.summary.total_aca_penalty ?? 0} />}
+                        {hasTaxableSS && <MatrixCellRow label="taxable SS" value={s.summary.total_taxable_ss ?? 0} />}
+                        <MatrixCellRow label="end total" value={s.summary.ending_total} />
                         <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">
                           T {fmtMoney(s.summary.ending_traditional)} / R {fmtMoney(s.summary.ending_roth)}
                         </div>
@@ -1299,6 +1544,8 @@ function BracketTooltip({
 function YearTable({ scenario }: { scenario: Scenario }) {
   const hasTaxableSS = scenario.years.some((y) => (y.taxable_ss ?? 0) > 0);
   const hasIRMAA = scenario.years.some((y) => (y.irmaa_surcharge ?? 0) > 0);
+  const hasNIIT = scenario.years.some((y) => (y.niit ?? 0) > 0);
+  const hasACA = scenario.years.some((y) => (y.aca_penalty ?? 0) > 0);
   return (
     <div>
       <p className="text-sm text-gray-700 dark:text-gray-200 mb-2">
@@ -1330,6 +1577,8 @@ function YearTable({ scenario }: { scenario: Scenario }) {
               <th className="p-2 text-left font-semibold">Federal tax</th>
               <th className="p-2 text-left font-semibold">State tax</th>
               {hasIRMAA && <th className="p-2 text-left font-semibold">IRMAA</th>}
+              {hasNIIT && <th className="p-2 text-left font-semibold">NIIT</th>}
+              {hasACA && <th className="p-2 text-left font-semibold">ACA penalty</th>}
               <th className="p-2 text-left font-semibold">End traditional</th>
               <th className="p-2 text-left font-semibold">End Roth</th>
               <th className="p-2 text-left font-semibold">End total</th>
@@ -1350,6 +1599,12 @@ function YearTable({ scenario }: { scenario: Scenario }) {
                 <td className="p-2 border-b border-amber-100 dark:border-amber-800/40">{y.state_tax > 0 ? fmtMoney(y.state_tax) : "-"}</td>
                 {hasIRMAA && (
                   <td className="p-2 border-b border-amber-100 dark:border-amber-800/40 text-purple-600 dark:text-purple-400">{(y.irmaa_surcharge ?? 0) > 0 ? fmtMoney(y.irmaa_surcharge ?? 0) : "-"}</td>
+                )}
+                {hasNIIT && (
+                  <td className="p-2 border-b border-amber-100 dark:border-amber-800/40">{(y.niit ?? 0) > 0 ? fmtMoney(y.niit ?? 0) : "-"}</td>
+                )}
+                {hasACA && (
+                  <td className="p-2 border-b border-amber-100 dark:border-amber-800/40 text-red-600 dark:text-red-400">{(y.aca_penalty ?? 0) > 0 ? fmtMoney(y.aca_penalty ?? 0) : "-"}</td>
                 )}
                 <td className="p-2 border-b border-amber-100 dark:border-amber-800/40">{fmtMoney(y.ending_traditional)}</td>
                 <td className="p-2 border-b border-amber-100 dark:border-amber-800/40">{fmtMoney(y.ending_roth)}</td>

@@ -533,6 +533,62 @@ func TestMatrix_BackwardCompatNoSSorIRMAA(t *testing.T) {
 	assert.InDelta(t, 0, resp.Scenarios[0].Summary.TotalTaxableSS, 0.01)
 }
 
+func TestMatrix_PerYearOtherIncomeStep(t *testing.T) {
+	// Plan D criterion: profile with $50k other years 0-2, $80k years 3+ ->
+	// per-year tax math reflects the step.
+	m := newMatrix(fakeRepo{tables: tables2026()})
+	resp, err := m.Compute(domain.MatrixRequest{
+		Profile: domain.Profile{
+			Age:                70,
+			BirthYear:          1956,
+			Total401k:          1_000_000,
+			TraditionalPct:     1.0,
+			FilingStatus:       domain.FilingMFJ,
+			AnnualOtherIncome:  50_000,
+			OtherIncomePerYear: []float64{50_000, 50_000, 50_000, 80_000, 80_000},
+			HorizonYears:       5,
+			IncludeRMD:         false,
+		},
+		RatesOfReturn:   []float64{0},
+		ConversionCases: []float64{0},
+	})
+	require.NoError(t, err)
+	years := resp.Scenarios[0].Years
+	// Year 0-2: 50k - 32.2k std = 17.8k taxable -> 17.8k * 0.10 = $1,780.
+	// Year 3-4: 80k - 32.2k std = 47.8k taxable -> 24.8k*0.10 + (47.8-24.8)k*0.12 = $5,240.
+	assert.InDelta(t, 1780, years[0].FederalTax, 0.01)
+	assert.InDelta(t, 1780, years[2].FederalTax, 0.01)
+	assert.InDelta(t, 5240, years[3].FederalTax, 0.01)
+	assert.InDelta(t, 5240, years[4].FederalTax, 0.01)
+}
+
+func TestMatrix_PerYearShorterThanHorizonFallsBackToScalar(t *testing.T) {
+	// Per-year array of length 2, horizon 5: years 0-1 use overrides, years
+	// 2-4 fall back to AnnualOtherIncome scalar.
+	m := newMatrix(fakeRepo{tables: tables2026()})
+	resp, err := m.Compute(domain.MatrixRequest{
+		Profile: domain.Profile{
+			Age:                60,
+			BirthYear:          1966,
+			Total401k:          1_000_000,
+			TraditionalPct:     1.0,
+			FilingStatus:       domain.FilingMFJ,
+			AnnualOtherIncome:  100_000,
+			OtherIncomePerYear: []float64{50_000, 60_000},
+			HorizonYears:       5,
+			IncludeRMD:         false,
+		},
+		RatesOfReturn:   []float64{0},
+		ConversionCases: []float64{0},
+	})
+	require.NoError(t, err)
+	years := resp.Scenarios[0].Years
+	assert.InDelta(t, 50_000, years[0].TaxableIncome, 0.01)
+	assert.InDelta(t, 60_000, years[1].TaxableIncome, 0.01)
+	assert.InDelta(t, 100_000, years[2].TaxableIncome, 0.01)
+	assert.InDelta(t, 100_000, years[4].TaxableIncome, 0.01)
+}
+
 func TestMatrix_TaxTableLoadFailure(t *testing.T) {
 	m := newMatrix(fakeRepo{err: errors.New("boom")})
 	_, err := m.Compute(domain.MatrixRequest{

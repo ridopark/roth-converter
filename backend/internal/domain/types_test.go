@@ -12,6 +12,15 @@ func tablesWithIRMAAandSS() TaxTables {
 			FilingMFJ:    32200,
 			FilingSingle: 16100,
 		},
+		NIITThresholds: map[FilingStatus]float64{
+			FilingMFJ:    250000,
+			FilingSingle: 200000,
+		},
+		NIITRate: 0.038,
+		AcaFPL400Pct: map[int]float64{
+			1: 62600, 2: 84600, 3: 106600, 4: 128600, 5: 150600,
+		},
+		AcaFPLPerExtra: 22000,
 		IRMAATiers: map[FilingStatus][]IRMAATier{
 			FilingMFJ: {
 				{Label: "standard", MaxMAGI: 218000, AnnualSurchargePerPerson: 0},
@@ -193,6 +202,113 @@ func TestProjectYear_SSImpactsTaxableIncome(t *testing.T) {
 	// taxable_ss = 11100 (from earlier test). taxable_income = 30000 + 11100 = 41100.
 	assert.InDelta(t, 11100, year.TaxableSS, 0.01)
 	assert.InDelta(t, 41100, year.TaxableIncome, 0.01)
+}
+
+func TestNIIT_UnderThresholdZero(t *testing.T) {
+	// Plan B criterion 1: $250k MFJ MAGI with $20k investment income.
+	// NIIT threshold for MFJ = $250k. excess = max(0, 250-250) = 0.
+	tt := tablesWithIRMAAandSS()
+	got := tt.NIIT(250000, 20000, FilingMFJ)
+	assert.InDelta(t, 0, got, 0.01)
+}
+
+func TestNIIT_AboveThreshold(t *testing.T) {
+	// Plan B criterion 2: $300k MFJ MAGI with $20k investment income.
+	// NIIT = 0.038 * min(20000, 300000-250000) = 0.038 * 20000 = $760.
+	tt := tablesWithIRMAAandSS()
+	got := tt.NIIT(300000, 20000, FilingMFJ)
+	assert.InDelta(t, 760, got, 0.01)
+}
+
+func TestNIIT_ExcessLessThanInvestment(t *testing.T) {
+	// $260k MFJ MAGI with $20k investment income. Excess = $10k < $20k -> NIIT
+	// taxes the smaller value.
+	tt := tablesWithIRMAAandSS()
+	got := tt.NIIT(260000, 20000, FilingMFJ)
+	assert.InDelta(t, 0.038*10000, got, 0.01)
+}
+
+func TestNIIT_ZeroInvestmentIncome(t *testing.T) {
+	tt := tablesWithIRMAAandSS()
+	assert.Equal(t, 0.0, tt.NIIT(500000, 0, FilingMFJ))
+}
+
+func TestACA400PctFPL_KnownSizes(t *testing.T) {
+	tt := tablesWithIRMAAandSS()
+	assert.InDelta(t, 62600, tt.ACA400PctFPL(1), 0.01)
+	assert.InDelta(t, 128600, tt.ACA400PctFPL(4), 0.01)
+}
+
+func TestACA400PctFPL_PerAdditional(t *testing.T) {
+	// Household 7 = household 5 + 2 * per_additional = 150600 + 2*22000.
+	tt := tablesWithIRMAAandSS()
+	got := tt.ACA400PctFPL(7)
+	assert.InDelta(t, 150600+2*22000, got, 0.01)
+}
+
+func TestACA400PctFPL_NonPositiveReturnsZero(t *testing.T) {
+	tt := tablesWithIRMAAandSS()
+	assert.Equal(t, 0.0, tt.ACA400PctFPL(0))
+}
+
+func TestProjectYear_NIITFiresFromConversion(t *testing.T) {
+	// 60-year-old MFJ, $200k other, $50k investment income, large conversion
+	// pushes MAGI well over $250k -> NIIT fires on the full $50k investment.
+	tt := tablesWithIRMAAandSS()
+	tt.OrdinaryBrackets = map[FilingStatus][]Bracket{
+		FilingMFJ: {{Rate: 0.10, Max: 24800}, {Rate: 0.12, Max: 100800}, {Rate: 0.22, Max: 211400}, {Rate: 0.24, Max: 403550}, {Rate: 0.37, Max: 0}},
+	}
+	state := YearState{Trad: 1_000_000, Roth: 0, Age: 60, CalYear: 2026}
+	in := YearInputs{
+		Tables:         tt,
+		Status:         FilingMFJ,
+		OtherIncome:    200000,
+		TaxableDivLTCG: 50000,
+	}
+	year, _ := ProjectYear(state, in, func(YearState, float64) float64 { return 100000 })
+	// MAGI = 200k + 100k + 0 + 0 + 50k = 350k. Excess = 100k. NIIT = 0.038 * min(50k, 100k) = $1900.
+	assert.InDelta(t, 350000, year.MAGI, 0.01)
+	assert.InDelta(t, 1900, year.NIIT, 0.01)
+}
+
+func TestProjectYear_ACACliffFiresWhenConversionCrosses400FPL(t *testing.T) {
+	// Plan B criterion 3: 60-year-old single just below 400% FPL ($62,600
+	// household 1) -> no penalty; conversion that pushes over -> $7,200 penalty.
+	tt := tablesWithIRMAAandSS()
+	tt.OrdinaryBrackets = map[FilingStatus][]Bracket{
+		FilingSingle: {{Rate: 0.10, Max: 12400}, {Rate: 0.12, Max: 50400}, {Rate: 0.22, Max: 105700}, {Rate: 0.37, Max: 0}},
+	}
+	state := YearState{Trad: 500_000, Roth: 0, Age: 60, CalYear: 2026}
+	in := YearInputs{
+		Tables:           tt,
+		Status:           FilingSingle,
+		OtherIncome:      60000,
+		AcaHouseholdSize: 1,
+		AcaAnnualPremium: 7200,
+	}
+	below, _ := ProjectYear(state, in, func(YearState, float64) float64 { return 0 })
+	above, _ := ProjectYear(state, in, func(YearState, float64) float64 { return 10000 })
+	// MAGI=60k below 62,600 -> no penalty; +10k conversion -> 70k > 62,600 -> $7,200 cliff.
+	assert.InDelta(t, 0, below.ACAPenalty, 0.01)
+	assert.InDelta(t, 7200, above.ACAPenalty, 0.01)
+}
+
+func TestProjectYear_ACAPenaltyZeroAt65Plus(t *testing.T) {
+	// ACA premium tax credit only applies to pre-Medicare enrollees.
+	tt := tablesWithIRMAAandSS()
+	tt.OrdinaryBrackets = map[FilingStatus][]Bracket{
+		FilingSingle: {{Rate: 0.10, Max: 12400}, {Rate: 0.37, Max: 0}},
+	}
+	state := YearState{Trad: 500_000, Roth: 0, Age: 65, CalYear: 2026}
+	in := YearInputs{
+		Tables:           tt,
+		Status:           FilingSingle,
+		OtherIncome:      200000,
+		AcaHouseholdSize: 1,
+		AcaAnnualPremium: 7200,
+	}
+	year, _ := ProjectYear(state, in, func(YearState, float64) float64 { return 0 })
+	assert.Equal(t, 0.0, year.ACAPenalty)
 }
 
 func TestRespectIRMAAEnabled_DefaultTrue(t *testing.T) {

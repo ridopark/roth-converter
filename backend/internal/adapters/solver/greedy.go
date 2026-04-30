@@ -55,17 +55,17 @@ func (m *Matrix) Compute(req domain.MatrixRequest) (domain.MatrixResponse, error
 func projectScenario(rate, convCase float64, profile domain.Profile, r domain.Resolved, tables domain.TaxTables) domain.Scenario {
 	state := domain.YearState{Trad: r.StartTrad, Roth: r.StartRoth, Age: profile.Age, CalYear: r.Year}
 	in := domain.YearInputs{
-		Tables:          tables,
-		Status:          profile.FilingStatus,
-		OtherIncome:     profile.AnnualOtherIncome,
-		StateRate:       r.StateRate,
-		Rate:            rate,
-		IncludeRMD:      profile.IncludeRMD,
-		RmdStartAge:     r.RmdStartAge,
-		AnnualSSBenefit: profile.AnnualSSBenefit,
+		Tables:           tables,
+		Status:           profile.FilingStatus,
+		StateRate:        r.StateRate,
+		Rate:             rate,
+		IncludeRMD:       profile.IncludeRMD,
+		RmdStartAge:      r.RmdStartAge,
+		AcaHouseholdSize: profile.AcaHouseholdSize,
+		AcaAnnualPremium: profile.AcaAnnualPremium,
 	}
 	years := make([]domain.ScenarioYear, 0, r.Horizon)
-	var sumFedTax, sumStateTax, sumConv, sumRMD, sumIRMAA, sumTaxableSS float64
+	var sumFedTax, sumStateTax, sumConv, sumRMD, sumIRMAA, sumTaxableSS, sumNIIT, sumACA float64
 
 	// MAGI lookback for IRMAA: year N's surcharge uses MAGI from year N-2.
 	// Seed with the profile's recent-history MAGI; once horizon years generate
@@ -75,6 +75,9 @@ func projectScenario(rate, convCase float64, profile domain.Profile, r domain.Re
 
 	for i := 0; i < r.Horizon; i++ {
 		in.MAGITwoYearsAgo = magiPrev2
+		in.OtherIncome = domain.PickPerYear(profile.OtherIncomePerYear, i, profile.AnnualOtherIncome)
+		in.AnnualSSBenefit = domain.PickPerYear(profile.SSBenefitPerYear, i, profile.AnnualSSBenefit)
+		in.TaxableDivLTCG = domain.PickPerYear(profile.TaxableDivLTCGPerYear, i, profile.TaxableDivLTCG)
 		var year domain.ScenarioYear
 		year, state = domain.ProjectYear(state, in, func(_ domain.YearState, _ float64) float64 { return convCase })
 		year.YearIndex = i + 1
@@ -85,6 +88,8 @@ func projectScenario(rate, convCase float64, profile domain.Profile, r domain.Re
 		sumRMD += year.RMD
 		sumIRMAA += year.IRMAASurcharge
 		sumTaxableSS += year.TaxableSS
+		sumNIIT += year.NIIT
+		sumACA += year.ACAPenalty
 		magiPrev2, magiPrev1 = magiPrev1, year.MAGI
 	}
 
@@ -102,6 +107,9 @@ func projectScenario(rate, convCase float64, profile domain.Profile, r domain.Re
 			EndingRoth:          domain.Round(state.Roth),
 			TotalTaxableSS:      domain.Round(sumTaxableSS),
 			TotalIRMAASurcharge: domain.Round(sumIRMAA),
+			TotalNIIT:           domain.Round(sumNIIT),
+			TotalACAPenalty:     domain.Round(sumACA),
 		},
 	}
 }
+

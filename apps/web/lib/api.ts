@@ -17,6 +17,12 @@ export interface MatrixRequest {
   annual_ss_benefit?: number;
   magi_two_years_ago?: number;
   magi_one_year_ago?: number;
+  taxable_div_ltcg?: number;
+  aca_household_size?: number;
+  aca_annual_premium?: number;
+  other_income_per_year?: number[];
+  ss_benefit_per_year?: number[];
+  taxable_div_ltcg_per_year?: number[];
 }
 
 export interface ScenarioYear {
@@ -37,6 +43,8 @@ export interface ScenarioYear {
   irmaa_surcharge?: number;
   magi?: number;
   irmaa_tier_label?: string;
+  niit?: number;
+  aca_penalty?: number;
 }
 
 export interface ScenarioSummary {
@@ -49,6 +57,8 @@ export interface ScenarioSummary {
   ending_roth: number;
   total_taxable_ss?: number;
   total_irmaa_surcharge?: number;
+  total_niit?: number;
+  total_aca_penalty?: number;
 }
 
 export interface Scenario {
@@ -132,6 +142,8 @@ export type OptimizeRequest = Omit<MatrixRequest, "rates_of_return" | "conversio
   rate_of_return: number;
   target_bracket_rate: number;
   respect_irmaa?: boolean;
+  strategy?: "bracket_fill" | "dp";
+  rates_per_year?: number[];
 };
 
 export interface OptimizePlan {
@@ -143,6 +155,7 @@ export interface OptimizePlan {
   target_bracket_top: number;
   irmaa_tiers?: IRMAATier[];
   respect_irmaa?: boolean;
+  strategy?: string;
 }
 
 export async function postOptimize(req: OptimizeRequest): Promise<OptimizePlan> {

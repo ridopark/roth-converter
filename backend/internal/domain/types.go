@@ -25,20 +25,26 @@ func (f FilingStatus) Valid() bool {
 }
 
 type Profile struct {
-	Age               int          `json:"age"`
-	BirthYear         int          `json:"birth_year"`
-	Total401k         float64      `json:"total_401k"`
-	TraditionalPct    float64      `json:"traditional_pct"`
-	RothPct           float64      `json:"roth_pct"`
-	FilingStatus      FilingStatus `json:"filing_status"`
-	AnnualOtherIncome float64      `json:"annual_other_income"`
-	HorizonYears      int          `json:"horizon_years"`
-	IncludeRMD        bool         `json:"include_rmd"`
-	TaxYear           int          `json:"tax_year"`
-	State             string       `json:"state"`
-	AnnualSSBenefit   float64      `json:"annual_ss_benefit,omitempty"`
-	MAGITwoYearsAgo   float64      `json:"magi_two_years_ago,omitempty"`
-	MAGIOneYearAgo    float64      `json:"magi_one_year_ago,omitempty"`
+	Age                     int          `json:"age"`
+	BirthYear               int          `json:"birth_year"`
+	Total401k               float64      `json:"total_401k"`
+	TraditionalPct          float64      `json:"traditional_pct"`
+	RothPct                 float64      `json:"roth_pct"`
+	FilingStatus            FilingStatus `json:"filing_status"`
+	AnnualOtherIncome       float64      `json:"annual_other_income"`
+	HorizonYears            int          `json:"horizon_years"`
+	IncludeRMD              bool         `json:"include_rmd"`
+	TaxYear                 int          `json:"tax_year"`
+	State                   string       `json:"state"`
+	AnnualSSBenefit         float64      `json:"annual_ss_benefit,omitempty"`
+	MAGITwoYearsAgo         float64      `json:"magi_two_years_ago,omitempty"`
+	MAGIOneYearAgo          float64      `json:"magi_one_year_ago,omitempty"`
+	TaxableDivLTCG          float64      `json:"taxable_div_ltcg,omitempty"`
+	AcaHouseholdSize        int          `json:"aca_household_size,omitempty"`
+	AcaAnnualPremium        float64      `json:"aca_annual_premium,omitempty"`
+	OtherIncomePerYear      []float64    `json:"other_income_per_year,omitempty"`
+	SSBenefitPerYear        []float64    `json:"ss_benefit_per_year,omitempty"`
+	TaxableDivLTCGPerYear   []float64    `json:"taxable_div_ltcg_per_year,omitempty"`
 }
 
 type Resolved struct {
@@ -119,6 +125,8 @@ type ScenarioYear struct {
 	IRMAASurcharge      float64 `json:"irmaa_surcharge,omitempty"`
 	MAGI                float64 `json:"magi,omitempty"`
 	IRMAATierLabel      string  `json:"irmaa_tier_label,omitempty"`
+	NIIT                float64 `json:"niit,omitempty"`
+	ACAPenalty          float64 `json:"aca_penalty,omitempty"`
 }
 
 type ScenarioSummary struct {
@@ -131,6 +139,8 @@ type ScenarioSummary struct {
 	EndingRoth          float64 `json:"ending_roth"`
 	TotalTaxableSS      float64 `json:"total_taxable_ss,omitempty"`
 	TotalIRMAASurcharge float64 `json:"total_irmaa_surcharge,omitempty"`
+	TotalNIIT           float64 `json:"total_niit,omitempty"`
+	TotalACAPenalty     float64 `json:"total_aca_penalty,omitempty"`
 }
 
 type Scenario struct {
@@ -150,9 +160,11 @@ type MatrixResponse struct {
 
 type OptimizeRequest struct {
 	Profile
-	RateOfReturn      float64 `json:"rate_of_return"`
-	TargetBracketRate float64 `json:"target_bracket_rate"`
-	RespectIRMAA      *bool   `json:"respect_irmaa,omitempty"`
+	RateOfReturn      float64   `json:"rate_of_return"`
+	TargetBracketRate float64   `json:"target_bracket_rate"`
+	RespectIRMAA      *bool     `json:"respect_irmaa,omitempty"`
+	Strategy          string    `json:"strategy,omitempty"`
+	RatesPerYear      []float64 `json:"rates_per_year,omitempty"`
 }
 
 func (r OptimizeRequest) RespectIRMAAEnabled() bool {
@@ -171,6 +183,7 @@ type OptimizePlan struct {
 	TargetBracketTop  float64     `json:"target_bracket_top"`
 	IRMAATiers        []IRMAATier `json:"irmaa_tiers,omitempty"`
 	RespectIRMAA      bool        `json:"respect_irmaa"`
+	Strategy          string      `json:"strategy,omitempty"`
 }
 
 type Bracket struct {
@@ -198,6 +211,12 @@ type TaxTables struct {
 	NoTaxStates       map[string]bool
 	IRMAATiers        map[FilingStatus][]IRMAATier
 	SSThresholds      map[FilingStatus]SSThreshold
+	NIITThresholds    map[FilingStatus]float64
+	NIITRate          float64
+	// AcaFPL400Pct holds 400%-FPL thresholds keyed by household size (1-5).
+	// Households larger than 5 use the BaseSize-1 lookup plus AcaFPLPerExtra.
+	AcaFPL400Pct      map[int]float64
+	AcaFPLPerExtra    float64
 }
 
 func RMDStartAge(birthYear int) int {
@@ -331,6 +350,49 @@ func (t TaxTables) MaxConvAtIRMAAStandardTop(otherIncome, rmd, ssBenefit float64
 	return conv
 }
 
+// NIIT returns the Net Investment Income Tax owed for the year. Per IRC 1411,
+// NIIT applies the rate (3.8% in current law) to the lesser of net investment
+// income and the amount by which MAGI exceeds the filing-status threshold.
+func (t TaxTables) NIIT(magi, investmentIncome float64, status FilingStatus) float64 {
+	threshold, ok := t.NIITThresholds[status]
+	if !ok || t.NIITRate <= 0 || investmentIncome <= 0 {
+		return 0
+	}
+	excess := magi - threshold
+	if excess <= 0 {
+		return 0
+	}
+	taxable := investmentIncome
+	if excess < taxable {
+		taxable = excess
+	}
+	return t.NIITRate * taxable
+}
+
+// ACA400PctFPL returns the 400% federal-poverty-line threshold for the given
+// household size (the ACA "premium tax credit cliff" boundary). Returns 0 when
+// no FPL table is loaded or the household size is non-positive.
+func (t TaxTables) ACA400PctFPL(householdSize int) float64 {
+	if householdSize <= 0 || t.AcaFPL400Pct == nil {
+		return 0
+	}
+	if v, ok := t.AcaFPL400Pct[householdSize]; ok {
+		return v
+	}
+	maxKey := 0
+	var maxVal float64
+	for k, v := range t.AcaFPL400Pct {
+		if k > maxKey {
+			maxKey = k
+			maxVal = v
+		}
+	}
+	if maxKey == 0 || householdSize <= maxKey {
+		return 0
+	}
+	return maxVal + float64(householdSize-maxKey)*t.AcaFPLPerExtra
+}
+
 // TaxableSS returns the portion of Social Security benefits subject to
 // federal income tax under IRC section 86. Provisional income is
 // other_income + 0.5 * ss_benefit (AGI-excluding-SS plus tax-exempt interest,
@@ -370,6 +432,16 @@ func Round(v float64) float64 {
 	return math.Round(v*100) / 100
 }
 
+// PickPerYear returns overrides[index] when overrides has at least index+1
+// entries, otherwise the scalar fallback. Used by both adapters to thread
+// per-year input arrays through the projection loop with scalar defaults.
+func PickPerYear(overrides []float64, index int, fallback float64) float64 {
+	if index < len(overrides) {
+		return overrides[index]
+	}
+	return fallback
+}
+
 type YearState struct {
 	Trad    float64
 	Roth    float64
@@ -390,7 +462,10 @@ type YearInputs struct {
 	// IRMAA surcharge applied this year (Medicare uses a 2-year lookback).
 	// Pass 0 when no history is available; surcharge will then be 0 for tiers
 	// that depend on that history (years 0 and 1 of a horizon, typically).
-	MAGITwoYearsAgo float64
+	MAGITwoYearsAgo  float64
+	TaxableDivLTCG   float64
+	AcaHouseholdSize int
+	AcaAnnualPremium float64
 }
 
 func ProjectYear(state YearState, in YearInputs, computeConv func(state YearState, rmd float64) float64) (ScenarioYear, YearState) {
@@ -407,13 +482,14 @@ func ProjectYear(state YearState, in YearInputs, computeConv func(state YearStat
 		conv = 0
 	}
 
-	taxableSS := in.Tables.TaxableSS(in.OtherIncome+conv+rmd, in.AnnualSSBenefit, in.Status)
+	// LTCG / qualified dividends sit in MAGI (per IRC sec 86 / IRMAA / NIIT
+	// rules) but are taxed under separate LTCG brackets, not added to ordinary
+	// taxable income. v1 tracks them only for those threshold gates.
+	taxableSS := in.Tables.TaxableSS(in.OtherIncome+conv+rmd+in.TaxableDivLTCG, in.AnnualSSBenefit, in.Status)
 	stdDed := in.Tables.StandardDeduction[in.Status]
-	// MAGI ~= AGI for this calculator (we don't model tax-exempt interest), so
-	// taxable_income (pre-deduction, post-SS) doubles as the IRMAA MAGI value.
-	magi := in.OtherIncome + conv + rmd + taxableSS
-	taxable := magi
-	afterStd := taxable - stdDed
+	ordinaryTaxable := in.OtherIncome + conv + rmd + taxableSS
+	magi := ordinaryTaxable + in.TaxableDivLTCG
+	afterStd := ordinaryTaxable - stdDed
 	if afterStd < 0 {
 		afterStd = 0
 	}
@@ -423,6 +499,14 @@ func ProjectYear(state YearState, in YearInputs, computeConv func(state YearStat
 	var irmaaTier string
 	if state.Age >= 65 {
 		irmaaTier = in.Tables.IRMAATierFor(in.MAGITwoYearsAgo, in.Status).Label
+	}
+	niit := in.Tables.NIIT(magi, in.TaxableDivLTCG, in.Status)
+	var acaPenalty float64
+	if state.Age < 65 && in.AcaHouseholdSize > 0 && in.AcaAnnualPremium > 0 {
+		fpl := in.Tables.ACA400PctFPL(in.AcaHouseholdSize)
+		if fpl > 0 && magi > fpl {
+			acaPenalty = in.AcaAnnualPremium
+		}
 	}
 
 	startingTrad, startingRoth := state.Trad, state.Roth
@@ -440,7 +524,7 @@ func ProjectYear(state YearState, in YearInputs, computeConv func(state YearStat
 		StartingRoth:        Round(startingRoth),
 		RMD:                 Round(rmd),
 		Conversion:          Round(conv),
-		TaxableIncome:       Round(taxable),
+		TaxableIncome:       Round(ordinaryTaxable),
 		FederalTax:          Round(fedTax),
 		StateTax:            Round(stateTax),
 		EndingTraditional:   Round(nextTrad),
@@ -450,6 +534,8 @@ func ProjectYear(state YearState, in YearInputs, computeConv func(state YearStat
 		IRMAASurcharge:      Round(irmaa),
 		MAGI:                Round(magi),
 		IRMAATierLabel:      irmaaTier,
+		NIIT:                Round(niit),
+		ACAPenalty:          Round(acaPenalty),
 	}
 	return year, YearState{Trad: nextTrad, Roth: nextRoth, Age: state.Age + 1, CalYear: state.CalYear + 1}
 }

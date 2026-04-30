@@ -39,24 +39,23 @@ func (o *BracketFill) Solve(req domain.OptimizeRequest) (domain.OptimizePlan, er
 
 	state := domain.YearState{Trad: r.StartTrad, Roth: r.StartRoth, Age: req.Age, CalYear: r.Year}
 	in := domain.YearInputs{
-		Tables:          tables,
-		Status:          req.FilingStatus,
-		OtherIncome:     req.AnnualOtherIncome,
-		StateRate:       r.StateRate,
-		Rate:            req.RateOfReturn,
-		IncludeRMD:      req.IncludeRMD,
-		RmdStartAge:     r.RmdStartAge,
-		AnnualSSBenefit: req.AnnualSSBenefit,
+		Tables:           tables,
+		Status:           req.FilingStatus,
+		StateRate:        r.StateRate,
+		IncludeRMD:       req.IncludeRMD,
+		RmdStartAge:      r.RmdStartAge,
+		AcaHouseholdSize: req.AcaHouseholdSize,
+		AcaAnnualPremium: req.AcaAnnualPremium,
 	}
 
 	fillToBracket := func(s domain.YearState, rmd float64) float64 {
 		// Solve conv such that taxable_income == stdDed + bracketTop. Taxable
 		// SS depends on (other+conv+rmd), so iterate to convergence (TaxableSS
 		// is Lipschitz <= 0.85 in its provisional argument).
-		conv := math.Max(0, bracketTop-math.Max(0, req.AnnualOtherIncome+rmd-stdDed))
+		conv := math.Max(0, bracketTop-math.Max(0, in.OtherIncome+rmd-stdDed))
 		for i := 0; i < 8; i++ {
-			ss := tables.TaxableSS(req.AnnualOtherIncome+conv+rmd, req.AnnualSSBenefit, req.FilingStatus)
-			next := math.Max(0, bracketTop-math.Max(0, req.AnnualOtherIncome+rmd+ss-stdDed))
+			ss := tables.TaxableSS(in.OtherIncome+conv+rmd+in.TaxableDivLTCG, in.AnnualSSBenefit, req.FilingStatus)
+			next := math.Max(0, bracketTop-math.Max(0, in.OtherIncome+rmd+ss-stdDed))
 			if math.Abs(next-conv) < 0.5 {
 				conv = next
 				break
@@ -67,7 +66,7 @@ func (o *BracketFill) Solve(req domain.OptimizeRequest) (domain.OptimizePlan, er
 		// At age >= 63, this year's MAGI seeds a Medicare surcharge two years
 		// out. Cap conversion at the standard tier so the surcharge stays $0.
 		if respectIRMAA && s.Age >= 63 && conv > 0 {
-			capByIRMAA := tables.MaxConvAtIRMAAStandardTop(req.AnnualOtherIncome, rmd, req.AnnualSSBenefit, req.FilingStatus)
+			capByIRMAA := tables.MaxConvAtIRMAAStandardTop(in.OtherIncome, rmd, in.AnnualSSBenefit, req.FilingStatus)
 			if capByIRMAA > 0 && conv > capByIRMAA {
 				conv = capByIRMAA
 			}
@@ -76,13 +75,17 @@ func (o *BracketFill) Solve(req domain.OptimizeRequest) (domain.OptimizePlan, er
 	}
 
 	years := make([]domain.ScenarioYear, 0, r.Horizon)
-	var sumFedTax, sumStateTax, sumConv, sumRMD, sumIRMAA, sumTaxableSS float64
+	var sumFedTax, sumStateTax, sumConv, sumRMD, sumIRMAA, sumTaxableSS, sumNIIT, sumACA float64
 
 	magiPrev2 := req.MAGITwoYearsAgo
 	magiPrev1 := req.MAGIOneYearAgo
 
 	for i := 0; i < r.Horizon; i++ {
 		in.MAGITwoYearsAgo = magiPrev2
+		in.OtherIncome = domain.PickPerYear(req.OtherIncomePerYear, i, req.AnnualOtherIncome)
+		in.AnnualSSBenefit = domain.PickPerYear(req.SSBenefitPerYear, i, req.AnnualSSBenefit)
+		in.TaxableDivLTCG = domain.PickPerYear(req.TaxableDivLTCGPerYear, i, req.TaxableDivLTCG)
+		in.Rate = domain.PickPerYear(req.RatesPerYear, i, req.RateOfReturn)
 		var year domain.ScenarioYear
 		year, state = domain.ProjectYear(state, in, fillToBracket)
 		year.YearIndex = i + 1
@@ -93,6 +96,8 @@ func (o *BracketFill) Solve(req domain.OptimizeRequest) (domain.OptimizePlan, er
 		sumRMD += year.RMD
 		sumIRMAA += year.IRMAASurcharge
 		sumTaxableSS += year.TaxableSS
+		sumNIIT += year.NIIT
+		sumACA += year.ACAPenalty
 		magiPrev2, magiPrev1 = magiPrev1, year.MAGI
 	}
 
@@ -111,6 +116,8 @@ func (o *BracketFill) Solve(req domain.OptimizeRequest) (domain.OptimizePlan, er
 				EndingRoth:          domain.Round(state.Roth),
 				TotalTaxableSS:      domain.Round(sumTaxableSS),
 				TotalIRMAASurcharge: domain.Round(sumIRMAA),
+				TotalNIIT:           domain.Round(sumNIIT),
+				TotalACAPenalty:     domain.Round(sumACA),
 			},
 		},
 		Brackets:          tables.OrdinaryBrackets[req.FilingStatus],
@@ -120,5 +127,7 @@ func (o *BracketFill) Solve(req domain.OptimizeRequest) (domain.OptimizePlan, er
 		TargetBracketTop:  bracketTop,
 		IRMAATiers:        tables.IRMAATiers[req.FilingStatus],
 		RespectIRMAA:      respectIRMAA,
+		Strategy:          "bracket_fill",
 	}, nil
 }
+
