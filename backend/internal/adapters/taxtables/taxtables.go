@@ -37,16 +37,29 @@ type rawBracket struct {
 }
 
 type rawTables struct {
-	Year              int                     `json:"year"`
-	StandardDeduction map[string]any          `json:"standard_deduction"`
-	OrdinaryBrackets  map[string][]rawBracket `json:"ordinary_brackets"`
-	RMDDivisors       map[string]float64      `json:"rmd_uniform_lifetime_divisors"`
-	States            *rawStates              `json:"states"`
+	Year                    int                        `json:"year"`
+	StandardDeduction       map[string]any             `json:"standard_deduction"`
+	OrdinaryBrackets        map[string][]rawBracket    `json:"ordinary_brackets"`
+	RMDDivisors             map[string]float64         `json:"rmd_uniform_lifetime_divisors"`
+	States                  *rawStates                 `json:"states"`
+	IRMAATiers              map[string][]rawIRMAATier  `json:"irmaa_tiers"`
+	SSProvisionalThresholds map[string]rawSSThreshold  `json:"ss_provisional_thresholds"`
 }
 
 type rawStates struct {
 	NoTax                       []string           `json:"no_tax"`
 	ApproximateTopMarginalRate  map[string]float64 `json:"approximate_top_marginal_rate"`
+}
+
+type rawIRMAATier struct {
+	Label                    string   `json:"label"`
+	MaxMAGI                  *float64 `json:"max_magi"`
+	AnnualSurchargePerPerson float64  `json:"annual_surcharge_per_person"`
+}
+
+type rawSSThreshold struct {
+	Lower float64 `json:"lower"`
+	Upper float64 `json:"upper"`
 }
 
 func (r *Repo) load(year int) (domain.TaxTables, error) {
@@ -67,6 +80,8 @@ func (r *Repo) load(year int) (domain.TaxTables, error) {
 		RMDDivisors:       map[int]float64{},
 		StateTaxRates:     map[string]float64{},
 		NoTaxStates:       map[string]bool{},
+		IRMAATiers:        map[domain.FilingStatus][]domain.IRMAATier{},
+		SSThresholds:      map[domain.FilingStatus]domain.SSThreshold{},
 	}
 
 	if raw.States != nil {
@@ -100,6 +115,26 @@ func (r *Repo) load(year int) (domain.TaxTables, error) {
 		if age, err := strconv.Atoi(k); err == nil {
 			out.RMDDivisors[age] = v
 		}
+	}
+
+	for status, tiers := range raw.IRMAATiers {
+		converted := make([]domain.IRMAATier, 0, len(tiers))
+		for _, tier := range tiers {
+			max := 0.0
+			if tier.MaxMAGI != nil {
+				max = *tier.MaxMAGI
+			}
+			converted = append(converted, domain.IRMAATier{
+				Label:                    tier.Label,
+				MaxMAGI:                  max,
+				AnnualSurchargePerPerson: tier.AnnualSurchargePerPerson,
+			})
+		}
+		out.IRMAATiers[domain.FilingStatus(status)] = converted
+	}
+
+	for status, t := range raw.SSProvisionalThresholds {
+		out.SSThresholds[domain.FilingStatus(status)] = domain.SSThreshold{Lower: t.Lower, Upper: t.Upper}
 	}
 
 	return out, nil

@@ -14,6 +14,9 @@ export interface MatrixRequest {
   include_rmd: boolean;
   tax_year: number;
   state: string;
+  annual_ss_benefit?: number;
+  magi_two_years_ago?: number;
+  magi_one_year_ago?: number;
 }
 
 export interface ScenarioYear {
@@ -30,6 +33,9 @@ export interface ScenarioYear {
   ending_traditional: number;
   ending_roth: number;
   ending_total: number;
+  taxable_ss?: number;
+  irmaa_surcharge?: number;
+  magi?: number;
 }
 
 export interface ScenarioSummary {
@@ -40,6 +46,8 @@ export interface ScenarioSummary {
   ending_total: number;
   ending_traditional: number;
   ending_roth: number;
+  total_taxable_ss?: number;
+  total_irmaa_surcharge?: number;
 }
 
 export interface Scenario {
@@ -54,11 +62,18 @@ export interface Bracket {
   max: number;
 }
 
+export interface IRMAATier {
+  label: string;
+  max_magi: number;
+  annual_surcharge_per_person: number;
+}
+
 export interface MatrixResponse {
   scenarios: Scenario[];
   brackets: Bracket[];
   standard_deduction: number;
   state_tax_rate: number;
+  irmaa_tiers?: IRMAATier[];
 }
 
 const STATE_NAMES: Record<string, string> = {
@@ -115,6 +130,7 @@ export function buildStateOptions(s: StatesResponse): StateOption[] {
 export type OptimizeRequest = Omit<MatrixRequest, "rates_of_return" | "conversion_cases"> & {
   rate_of_return: number;
   target_bracket_rate: number;
+  respect_irmaa?: boolean;
 };
 
 export interface OptimizePlan {
@@ -124,6 +140,8 @@ export interface OptimizePlan {
   state_tax_rate: number;
   target_bracket_rate: number;
   target_bracket_top: number;
+  irmaa_tiers?: IRMAATier[];
+  respect_irmaa?: boolean;
 }
 
 export async function postOptimize(req: OptimizeRequest): Promise<OptimizePlan> {
