@@ -298,6 +298,65 @@ func TestMatrix_InvalidInputs(t *testing.T) {
 	}
 }
 
+func TestMatrix_StateTaxApplied(t *testing.T) {
+	tt := tables2026()
+	tt.StateTaxRates = map[string]float64{"CA": 0.10}
+	tt.NoTaxStates = map[string]bool{"TX": true}
+	m := newMatrix(fakeRepo{tables: tt})
+
+	// MFJ, $50k other income, no conv, no RMD, 1 yr horizon.
+	// taxable = 50k, after_std = 17,800.
+	// fed_tax = 1,780. CA state_tax = 17,800 * 0.10 = 1,780.
+	respCA, err := m.Compute(domain.MatrixRequest{
+		Age:               60,
+		BirthYear:         1966,
+		Total401k:         100_000,
+		TraditionalPct:    1.0,
+		FilingStatus:      domain.FilingMFJ,
+		AnnualOtherIncome: 50_000,
+		HorizonYears:      1,
+		RatesOfReturn:     []float64{0},
+		ConversionCases:   []float64{0},
+		State:             "CA",
+	})
+	require.NoError(t, err)
+	assert.InDelta(t, 0.10, respCA.StateTaxRate, 0.0001)
+	assert.InDelta(t, 1780, respCA.Scenarios[0].Years[0].StateTax, 0.01)
+	assert.InDelta(t, 1780, respCA.Scenarios[0].Summary.TotalStateTax, 0.01)
+
+	// TX (no_tax) -> 0.
+	respTX, err := m.Compute(domain.MatrixRequest{
+		Age:               60,
+		BirthYear:         1966,
+		Total401k:         100_000,
+		TraditionalPct:    1.0,
+		FilingStatus:      domain.FilingMFJ,
+		AnnualOtherIncome: 50_000,
+		HorizonYears:      1,
+		RatesOfReturn:     []float64{0},
+		ConversionCases:   []float64{0},
+		State:             "TX",
+	})
+	require.NoError(t, err)
+	assert.InDelta(t, 0, respTX.StateTaxRate, 0.0001)
+	assert.InDelta(t, 0, respTX.Scenarios[0].Years[0].StateTax, 0.01)
+
+	// Empty state -> 0.
+	respNone, err := m.Compute(domain.MatrixRequest{
+		Age:               60,
+		BirthYear:         1966,
+		Total401k:         100_000,
+		TraditionalPct:    1.0,
+		FilingStatus:      domain.FilingMFJ,
+		AnnualOtherIncome: 50_000,
+		HorizonYears:      1,
+		RatesOfReturn:     []float64{0},
+		ConversionCases:   []float64{0},
+	})
+	require.NoError(t, err)
+	assert.InDelta(t, 0, respNone.StateTaxRate, 0.0001)
+}
+
 func TestMatrix_PopulatesBracketsAndStdDeduction(t *testing.T) {
 	tt := tables2026()
 	m := newMatrix(fakeRepo{tables: tt})

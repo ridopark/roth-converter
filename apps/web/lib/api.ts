@@ -13,6 +13,7 @@ export interface MatrixRequest {
   conversion_cases: number[];
   include_rmd: boolean;
   tax_year: number;
+  state: string;
 }
 
 export interface ScenarioYear {
@@ -25,6 +26,7 @@ export interface ScenarioYear {
   conversion: number;
   taxable_income: number;
   federal_tax: number;
+  state_tax: number;
   ending_traditional: number;
   ending_roth: number;
   ending_total: number;
@@ -32,6 +34,7 @@ export interface ScenarioYear {
 
 export interface ScenarioSummary {
   total_federal_tax: number;
+  total_state_tax: number;
   total_converted: number;
   total_rmd: number;
   ending_total: number;
@@ -55,7 +58,42 @@ export interface MatrixResponse {
   scenarios: Scenario[];
   brackets: Bracket[];
   standard_deduction: number;
+  state_tax_rate: number;
 }
+
+export const US_STATES: { code: string; name: string; rate?: number; noTax?: boolean }[] = [
+  { code: "", name: "None / not listed (0%)" },
+  { code: "AK", name: "Alaska", noTax: true },
+  { code: "AZ", name: "Arizona", rate: 0.025 },
+  { code: "CA", name: "California", rate: 0.133 },
+  { code: "CO", name: "Colorado", rate: 0.044 },
+  { code: "DC", name: "District of Columbia", rate: 0.1075 },
+  { code: "FL", name: "Florida", noTax: true },
+  { code: "GA", name: "Georgia", rate: 0.0539 },
+  { code: "HI", name: "Hawaii", rate: 0.11 },
+  { code: "IL", name: "Illinois", rate: 0.0495 },
+  { code: "IN", name: "Indiana", rate: 0.03 },
+  { code: "MA", name: "Massachusetts", rate: 0.09 },
+  { code: "MD", name: "Maryland", rate: 0.0575 },
+  { code: "MI", name: "Michigan", rate: 0.0425 },
+  { code: "MN", name: "Minnesota", rate: 0.0985 },
+  { code: "MS", name: "Mississippi", rate: 0 },
+  { code: "NC", name: "North Carolina", rate: 0.0399 },
+  { code: "NH", name: "New Hampshire", noTax: true },
+  { code: "NJ", name: "New Jersey", rate: 0.1075 },
+  { code: "NV", name: "Nevada", noTax: true },
+  { code: "NY", name: "New York", rate: 0.109 },
+  { code: "OH", name: "Ohio", rate: 0.035 },
+  { code: "OR", name: "Oregon", rate: 0.099 },
+  { code: "PA", name: "Pennsylvania", rate: 0 },
+  { code: "SD", name: "South Dakota", noTax: true },
+  { code: "TN", name: "Tennessee", noTax: true },
+  { code: "TX", name: "Texas", noTax: true },
+  { code: "VA", name: "Virginia", rate: 0.0575 },
+  { code: "VT", name: "Vermont", rate: 0.0875 },
+  { code: "WA", name: "Washington", noTax: true },
+  { code: "WY", name: "Wyoming", noTax: true },
+];
 
 const BACKEND = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8090";
 

@@ -65,11 +65,13 @@ func (m *Matrix) Compute(req domain.MatrixRequest) (domain.MatrixResponse, error
 		cases = []float64{0, 25000, 50000, 100000}
 	}
 
+	stateRate := stateTaxRate(req.State, tables)
+
 	scenarios := make([]domain.Scenario, 0, len(rates)*len(cases))
 	for _, r := range rates {
 		for _, c := range cases {
 			s := projectScenario(r, c, startTrad, startRoth, req.AnnualOtherIncome,
-				req.FilingStatus, req.IncludeRMD, rmdStart, req.Age, year, horizon, tables)
+				req.FilingStatus, req.IncludeRMD, rmdStart, req.Age, year, horizon, tables, stateRate)
 			scenarios = append(scenarios, s)
 		}
 	}
@@ -77,20 +79,31 @@ func (m *Matrix) Compute(req domain.MatrixRequest) (domain.MatrixResponse, error
 		Scenarios:         scenarios,
 		Brackets:          tables.OrdinaryBrackets[req.FilingStatus],
 		StandardDeduction: tables.StandardDeduction[req.FilingStatus],
+		StateTaxRate:      stateRate,
 	}, nil
+}
+
+func stateTaxRate(code string, tables domain.TaxTables) float64 {
+	if code == "" {
+		return 0
+	}
+	if tables.NoTaxStates[code] {
+		return 0
+	}
+	return tables.StateTaxRates[code]
 }
 
 func projectScenario(
 	rate, convCase, startTrad, startRoth, otherIncome float64,
 	status domain.FilingStatus, includeRMD bool, rmdStartAge, startAge, startYear, horizon int,
-	tables domain.TaxTables,
+	tables domain.TaxTables, stateRate float64,
 ) domain.Scenario {
 	trad := startTrad
 	roth := startRoth
 	years := make([]domain.ScenarioYear, 0, horizon)
 	stdDed := tables.StandardDeduction[status]
 
-	var sumTax, sumConv, sumRMD float64
+	var sumFedTax, sumStateTax, sumConv, sumRMD float64
 
 	for i := 0; i < horizon; i++ {
 		age := startAge + i
@@ -115,6 +128,7 @@ func projectScenario(
 			afterStd = 0
 		}
 		fedTax := ordinaryTax(afterStd, status, tables)
+		stateTax := afterStd * stateRate
 
 		startingTrad := trad
 		startingRoth := roth
@@ -135,12 +149,14 @@ func projectScenario(
 			Conversion:          round(conv),
 			TaxableIncome:       round(taxable),
 			FederalTax:          round(fedTax),
+			StateTax:            round(stateTax),
 			EndingTraditional:   round(trad),
 			EndingRoth:          round(roth),
 			EndingTotal:         round(trad + roth),
 		})
 
-		sumTax += fedTax
+		sumFedTax += fedTax
+		sumStateTax += stateTax
 		sumConv += conv
 		sumRMD += rmd
 	}
@@ -150,7 +166,8 @@ func projectScenario(
 		ConversionAmount: convCase,
 		Years:            years,
 		Summary: domain.ScenarioSummary{
-			TotalFederalTax:   round(sumTax),
+			TotalFederalTax:   round(sumFedTax),
+			TotalStateTax:     round(sumStateTax),
 			TotalConverted:    round(sumConv),
 			TotalRMD:          round(sumRMD),
 			EndingTotal:       round(trad + roth),

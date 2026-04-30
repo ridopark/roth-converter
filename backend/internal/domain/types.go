@@ -30,6 +30,7 @@ type MatrixRequest struct {
 	ConversionCases     []float64    `json:"conversion_cases"`
 	IncludeRMD          bool         `json:"include_rmd"`
 	TaxYear             int          `json:"tax_year"`
+	State               string       `json:"state"`
 }
 
 type ScenarioYear struct {
@@ -42,6 +43,7 @@ type ScenarioYear struct {
 	Conversion          float64 `json:"conversion"`
 	TaxableIncome       float64 `json:"taxable_income"`
 	FederalTax          float64 `json:"federal_tax"`
+	StateTax            float64 `json:"state_tax"`
 	EndingTraditional   float64 `json:"ending_traditional"`
 	EndingRoth          float64 `json:"ending_roth"`
 	EndingTotal         float64 `json:"ending_total"`
@@ -49,6 +51,7 @@ type ScenarioYear struct {
 
 type ScenarioSummary struct {
 	TotalFederalTax    float64 `json:"total_federal_tax"`
+	TotalStateTax      float64 `json:"total_state_tax"`
 	TotalConverted     float64 `json:"total_converted"`
 	TotalRMD           float64 `json:"total_rmd"`
 	EndingTotal        float64 `json:"ending_total"`
@@ -67,6 +70,7 @@ type MatrixResponse struct {
 	Scenarios         []Scenario `json:"scenarios"`
 	Brackets          []Bracket  `json:"brackets"`
 	StandardDeduction float64    `json:"standard_deduction"`
+	StateTaxRate      float64    `json:"state_tax_rate"`
 }
 
 type Bracket struct {
@@ -79,6 +83,8 @@ type TaxTables struct {
 	StandardDeduction map[FilingStatus]float64
 	OrdinaryBrackets  map[FilingStatus][]Bracket
 	RMDDivisors       map[int]float64
+	StateTaxRates     map[string]float64
+	NoTaxStates       map[string]bool
 }
 
 func RMDStartAge(birthYear int) int {

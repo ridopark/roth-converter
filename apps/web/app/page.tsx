@@ -21,6 +21,7 @@ import {
   pingVisit,
   withBaselineCase,
   getBrackets,
+  US_STATES,
   type Bracket,
   type MatrixResponse,
   type FilingStatus,
@@ -38,6 +39,7 @@ interface FormState {
   conversion_cases_str: string;
   include_rmd: boolean;
   tax_year: number;
+  state: string;
 }
 
 const DEFAULT_FORM: FormState = {
@@ -51,6 +53,7 @@ const DEFAULT_FORM: FormState = {
   conversion_cases_str: "0, 25000, 50000, 100000, 200000",
   include_rmd: true,
   tax_year: 2026,
+  state: "",
 };
 
 interface DialogState {
@@ -159,6 +162,7 @@ export default function Home() {
         conversion_cases: cases,
         include_rmd: form.include_rmd,
         tax_year: form.tax_year,
+        state: form.state,
       });
       setResp(r);
       setDialogs([]);
@@ -256,6 +260,38 @@ export default function Home() {
             hint="Year of the tax tables to use (default 2026). v1 applies the same brackets every projected year."
           >
             <NumberInput value={form.tax_year} onChange={(v) => setForm({ ...form, tax_year: v })} />
+          </Field>
+          <Field
+            label="State (for income tax)"
+            hint={
+              <>
+                State income tax is applied as a flat top-marginal rate to the same
+                post-deduction taxable income that federal tax uses (an approximation;
+                most states have their own brackets and deductions). Pick &ldquo;None&rdquo;
+                to skip state tax entirely. Nine states have no state income tax. The
+                rates shown are 2026 top-marginal estimates.
+              </>
+            }
+          >
+            <select
+              className="border border-gray-300 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100 rounded p-1 w-full"
+              value={form.state}
+              onChange={(e) => setForm({ ...form, state: e.target.value })}
+            >
+              {US_STATES.map((s) => {
+                const label =
+                  s.code === ""
+                    ? s.name
+                    : s.noTax
+                      ? `${s.name} - no state income tax`
+                      : `${s.name} - ${(s.rate ?? 0) * 100}%`;
+                return (
+                  <option key={s.code} value={s.code}>
+                    {label}
+                  </option>
+                );
+              })}
+            </select>
           </Field>
         </fieldset>
 
@@ -596,8 +632,16 @@ function Results({
                           open ? "bg-amber-50 dark:bg-amber-900/30" : ""
                         }`}
                       >
-                        <div className="text-xs text-gray-500 dark:text-gray-400">tax</div>
+                        <div className="text-xs text-gray-500 dark:text-gray-400">
+                          {s.summary.total_state_tax > 0 ? "fed tax" : "tax"}
+                        </div>
                         <div className="font-semibold">{fmtMoney(s.summary.total_federal_tax)}</div>
+                        {s.summary.total_state_tax > 0 && (
+                          <>
+                            <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">state tax</div>
+                            <div className="font-semibold">{fmtMoney(s.summary.total_state_tax)}</div>
+                          </>
+                        )}
                         <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">end total</div>
                         <div className="font-semibold">{fmtMoney(s.summary.ending_total)}</div>
                         <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">
@@ -668,7 +712,7 @@ function OverviewCharts({
         if (!s) return;
         const key = seriesKeys[idx];
         let cumTax = 0;
-        for (let j = 0; j <= i; j++) cumTax += s.years[j].federal_tax;
+        for (let j = 0; j <= i; j++) cumTax += s.years[j].federal_tax + s.years[j].state_tax;
         cumByCase[key] = cumTax;
         tradByCase[key] = s.years[i].ending_traditional;
         rothByCase[key] = s.years[i].ending_roth;
@@ -706,7 +750,7 @@ function OverviewCharts({
         ))}
       </div>
       <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-        <SeriesChart title="Cumulative federal tax paid" data={cumData} seriesKeys={seriesKeys} />
+        <SeriesChart title="Cumulative tax paid (federal + state)" data={cumData} seriesKeys={seriesKeys} />
         <SeriesChart title="Traditional 401(k) balance" data={tradData} seriesKeys={seriesKeys} />
         <SeriesChart title="Roth 401(k) balance" data={rothData} seriesKeys={seriesKeys} />
       </div>
@@ -943,8 +987,14 @@ function YearTable({ scenario }: { scenario: Scenario }) {
   return (
     <div>
       <p className="text-sm text-gray-700 dark:text-gray-200 mb-2">
-        Total tax <strong>{fmtMoney(scenario.summary.total_federal_tax)}</strong>, end balance{" "}
-        <strong>{fmtMoney(scenario.summary.ending_total)}</strong>
+        Total federal tax <strong>{fmtMoney(scenario.summary.total_federal_tax)}</strong>
+        {scenario.summary.total_state_tax > 0 && (
+          <>
+            {" "}
+            + state tax <strong>{fmtMoney(scenario.summary.total_state_tax)}</strong>
+          </>
+        )}
+        , end balance <strong>{fmtMoney(scenario.summary.ending_total)}</strong>
       </p>
       <div className="overflow-x-auto">
         <table className="min-w-full text-sm border border-amber-200 dark:border-amber-800">
@@ -956,6 +1006,7 @@ function YearTable({ scenario }: { scenario: Scenario }) {
               <th className="p-2 text-left font-semibold">Conversion</th>
               <th className="p-2 text-left font-semibold">Taxable</th>
               <th className="p-2 text-left font-semibold">Federal tax</th>
+              <th className="p-2 text-left font-semibold">State tax</th>
               <th className="p-2 text-left font-semibold">End traditional</th>
               <th className="p-2 text-left font-semibold">End Roth</th>
               <th className="p-2 text-left font-semibold">End total</th>
@@ -970,6 +1021,7 @@ function YearTable({ scenario }: { scenario: Scenario }) {
                 <td className="p-2 border-b border-amber-100 dark:border-amber-800/40">{y.conversion > 0 ? fmtMoney(y.conversion) : "-"}</td>
                 <td className="p-2 border-b border-amber-100 dark:border-amber-800/40">{fmtMoney(y.taxable_income)}</td>
                 <td className="p-2 border-b border-amber-100 dark:border-amber-800/40">{fmtMoney(y.federal_tax)}</td>
+                <td className="p-2 border-b border-amber-100 dark:border-amber-800/40">{y.state_tax > 0 ? fmtMoney(y.state_tax) : "-"}</td>
                 <td className="p-2 border-b border-amber-100 dark:border-amber-800/40">{fmtMoney(y.ending_traditional)}</td>
                 <td className="p-2 border-b border-amber-100 dark:border-amber-800/40">{fmtMoney(y.ending_roth)}</td>
                 <td className="p-2 border-b border-amber-100 dark:border-amber-800/40 font-semibold">{fmtMoney(y.ending_total)}</td>
