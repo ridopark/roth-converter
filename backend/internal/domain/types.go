@@ -64,12 +64,14 @@ type Scenario struct {
 }
 
 type MatrixResponse struct {
-	Scenarios []Scenario `json:"scenarios"`
+	Scenarios         []Scenario `json:"scenarios"`
+	Brackets          []Bracket  `json:"brackets"`
+	StandardDeduction float64    `json:"standard_deduction"`
 }
 
 type Bracket struct {
-	Rate float64
-	Max  float64
+	Rate float64 `json:"rate"`
+	Max  float64 `json:"max"`
 }
 
 type TaxTables struct {

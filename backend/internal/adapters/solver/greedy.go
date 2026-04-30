@@ -73,7 +73,11 @@ func (m *Matrix) Compute(req domain.MatrixRequest) (domain.MatrixResponse, error
 			scenarios = append(scenarios, s)
 		}
 	}
-	return domain.MatrixResponse{Scenarios: scenarios}, nil
+	return domain.MatrixResponse{
+		Scenarios:         scenarios,
+		Brackets:          tables.OrdinaryBrackets[req.FilingStatus],
+		StandardDeduction: tables.StandardDeduction[req.FilingStatus],
+	}, nil
 }
 
 func projectScenario(

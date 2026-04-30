@@ -2,11 +2,24 @@
 
 import { useMemo, useState } from "react";
 import {
+  CartesianGrid,
+  Legend,
+  Line,
+  LineChart,
+  ReferenceLine,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from "recharts";
+import {
   postMatrix,
   fmtMoney,
   fmtPct,
   parseAmountList,
   parseRateList,
+  withBaselineCase,
+  type Bracket,
   type MatrixResponse,
   type FilingStatus,
   type Scenario,
@@ -38,12 +51,17 @@ const DEFAULT_FORM: FormState = {
   tax_year: 2026,
 };
 
+interface SelectedCell {
+  rate: number;
+  conversion: number;
+}
+
 export default function Home() {
   const [form, setForm] = useState<FormState>(DEFAULT_FORM);
   const [resp, setResp] = useState<MatrixResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
-  const [activeRate, setActiveRate] = useState<number | null>(null);
+  const [selected, setSelected] = useState<SelectedCell | null>(null);
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -51,7 +69,7 @@ export default function Home() {
     setErr(null);
     try {
       const rates = parseRateList(form.rates_str);
-      const cases = parseAmountList(form.conversion_cases_str);
+      const cases = withBaselineCase(parseAmountList(form.conversion_cases_str));
       if (rates.length === 0) throw new Error("Need at least one rate of return");
       if (cases.length === 0) throw new Error("Need at least one conversion case");
       const tradPct = form.traditional_pct / 100;
@@ -70,7 +88,7 @@ export default function Home() {
         tax_year: form.tax_year,
       });
       setResp(r);
-      if (r.scenarios.length > 0) setActiveRate(r.scenarios[0].rate_of_return);
+      setSelected(null);
     } catch (e: unknown) {
       setErr(e instanceof Error ? e.message : String(e));
     } finally {
@@ -192,14 +210,14 @@ export default function Home() {
           </Field>
           <Field
             label="Annual conversion cases ($)"
-            hint="Comma-separated annual conversion amounts to sweep. Held constant each year, capped by Traditional balance after RMD. Tax is paid from outside the 401(k), so 100% of the conversion lands in Roth."
+            hint="Comma-separated annual conversion amounts to sweep. The $0 baseline is always included. Held constant each year, capped by Traditional balance after RMD. Tax is paid from outside the 401(k), so 100% of the conversion lands in Roth."
           >
             <input
               type="text"
               className="border rounded p-1 w-full"
               value={form.conversion_cases_str}
               onChange={(e) => setForm({ ...form, conversion_cases_str: e.target.value })}
-              placeholder="0, 25000, 50000, 100000"
+              placeholder="25000, 50000, 100000"
             />
           </Field>
           <button
@@ -214,7 +232,19 @@ export default function Home() {
 
       {err && <div className="rounded bg-red-100 text-red-800 p-3 mb-4">{err}</div>}
 
-      {resp && <Results resp={resp} activeRate={activeRate} setActiveRate={setActiveRate} />}
+      {resp && (
+        <Results
+          resp={resp}
+          selected={selected}
+          onSelect={(cell) => {
+            setSelected((prev) =>
+              prev && prev.rate === cell.rate && prev.conversion === cell.conversion
+                ? null
+                : cell
+            );
+          }}
+        />
+      )}
     </main>
   );
 }
@@ -254,12 +284,12 @@ function NumberInput({ value, onChange }: { value: number; onChange: (v: number)
 
 function Results({
   resp,
-  activeRate,
-  setActiveRate,
+  selected,
+  onSelect,
 }: {
   resp: MatrixResponse;
-  activeRate: number | null;
-  setActiveRate: (r: number) => void;
+  selected: SelectedCell | null;
+  onSelect: (cell: SelectedCell) => void;
 }) {
   const rates = useMemo(
     () => Array.from(new Set(resp.scenarios.map((s) => s.rate_of_return))).sort((a, b) => a - b),
@@ -274,9 +304,26 @@ function Results({
     return resp.scenarios.find((s) => s.rate_of_return === r && s.conversion_amount === c);
   }
 
+  const baselineRate = selected ? selected.rate : rates[0];
+  const baseline = find(baselineRate, 0);
+  const selectedScenario = selected ? find(selected.rate, selected.conversion) : null;
+
   return (
     <div>
-      <h2 className="text-xl font-semibold mb-3">Comparison: total tax paid and ending balance after horizon</h2>
+      <h2 className="text-xl font-semibold mb-3">Taxable income vs federal brackets</h2>
+      {baseline && (
+        <BracketChart
+          baseline={baseline}
+          selected={selectedScenario ?? null}
+          brackets={resp.brackets}
+          stdDeduction={resp.standard_deduction}
+        />
+      )}
+
+      <h2 className="text-xl font-semibold mb-3 mt-8">Comparison: total tax paid and ending balance after horizon</h2>
+      <p className="text-xs text-gray-500 mb-2">
+        Click any cell to drill into its year-by-year detail below. Click the same cell again to clear.
+      </p>
       <div className="overflow-x-auto mb-6">
         <table className="min-w-full text-sm border">
           <thead className="bg-gray-100">
@@ -294,15 +341,30 @@ function Results({
                 {rates.map((r) => {
                   const s = find(r, c);
                   if (!s) return <td key={r} className="p-2 border">-</td>;
+                  const isSelected =
+                    selected !== null && selected.rate === r && selected.conversion === c;
                   return (
-                    <td key={r} className="p-2 border">
-                      <div className="text-xs text-gray-500">tax</div>
-                      <div className="font-semibold">{fmtMoney(s.summary.total_federal_tax)}</div>
-                      <div className="text-xs text-gray-500 mt-1">end total</div>
-                      <div className="font-semibold">{fmtMoney(s.summary.ending_total)}</div>
-                      <div className="text-xs text-gray-500 mt-1">
-                        T {fmtMoney(s.summary.ending_traditional)} / R {fmtMoney(s.summary.ending_roth)}
-                      </div>
+                    <td
+                      key={r}
+                      className={`p-0 border ${isSelected ? "ring-2 ring-amber-500 ring-inset" : ""}`}
+                    >
+                      <button
+                        type="button"
+                        onClick={() => onSelect({ rate: r, conversion: c })}
+                        aria-pressed={isSelected}
+                        aria-label={`Select ${fmtMoney(c)} per year at ${fmtPct(r)}`}
+                        className={`w-full text-left p-2 cursor-pointer focus:outline-none focus-visible:bg-amber-50 hover:bg-amber-50 ${
+                          isSelected ? "bg-amber-50" : ""
+                        }`}
+                      >
+                        <div className="text-xs text-gray-500">tax</div>
+                        <div className="font-semibold">{fmtMoney(s.summary.total_federal_tax)}</div>
+                        <div className="text-xs text-gray-500 mt-1">end total</div>
+                        <div className="font-semibold">{fmtMoney(s.summary.ending_total)}</div>
+                        <div className="text-xs text-gray-500 mt-1">
+                          T {fmtMoney(s.summary.ending_traditional)} / R {fmtMoney(s.summary.ending_roth)}
+                        </div>
+                      </button>
                     </td>
                   );
                 })}
@@ -312,30 +374,120 @@ function Results({
         </table>
       </div>
 
-      <h2 className="text-xl font-semibold mb-3">Year-by-year detail</h2>
-      <div className="flex gap-2 mb-3 flex-wrap">
-        {rates.map((r) => (
-          <button
-            key={r}
-            onClick={() => setActiveRate(r)}
-            className={`px-3 py-1 rounded text-sm border ${
-              activeRate === r ? "bg-amber-500 text-white border-amber-500" : "bg-white"
-            }`}
-          >
-            Rate {fmtPct(r)}
-          </button>
-        ))}
-      </div>
-
-      {activeRate !== null && (
-        <div className="space-y-6">
-          {cases.map((c) => {
-            const s = find(activeRate, c);
-            if (!s) return null;
-            return <YearTable key={c} scenario={s} />;
-          })}
+      {selectedScenario && (
+        <div>
+          <h2 className="text-xl font-semibold mb-3">
+            Year-by-year for {fmtMoney(selectedScenario.conversion_amount)}/yr conversion at{" "}
+            {fmtPct(selectedScenario.rate_of_return)} rate
+          </h2>
+          <YearTable scenario={selectedScenario} />
         </div>
       )}
+    </div>
+  );
+}
+
+interface ChartRow {
+  year: number;
+  baseline: number;
+  selected: number | null;
+}
+
+function BracketChart({
+  baseline,
+  selected,
+  brackets,
+  stdDeduction,
+}: {
+  baseline: Scenario;
+  selected: Scenario | null;
+  brackets: Bracket[];
+  stdDeduction: number;
+}) {
+  const data: ChartRow[] = useMemo(() => {
+    return baseline.years.map((y, i) => {
+      const sy = selected?.years[i];
+      return {
+        year: y.calendar_year,
+        baseline: Math.max(0, y.taxable_income - stdDeduction),
+        selected: sy ? Math.max(0, sy.taxable_income - stdDeduction) : null,
+      };
+    });
+  }, [baseline, selected, stdDeduction]);
+
+  const refLines = useMemo(() => brackets.filter((b) => b.max > 0), [brackets]);
+
+  const yMax = useMemo(() => {
+    let v = 0;
+    for (const row of data) {
+      if (row.baseline > v) v = row.baseline;
+      if (row.selected !== null && row.selected > v) v = row.selected;
+    }
+    for (const b of refLines) {
+      if (b.max > v) v = b.max;
+    }
+    return v * 1.1;
+  }, [data, refLines]);
+
+  return (
+    <div className="border rounded p-3 mb-6 bg-white">
+      <ResponsiveContainer width="100%" height={320}>
+        <LineChart data={data} margin={{ top: 12, right: 32, left: 16, bottom: 8 }}>
+          <CartesianGrid strokeDasharray="3 3" stroke="#eee" />
+          <XAxis dataKey="year" tick={{ fontSize: 12 }} />
+          <YAxis
+            tick={{ fontSize: 12 }}
+            tickFormatter={(v: number) => fmtMoney(v)}
+            domain={[0, yMax]}
+          />
+          <Tooltip
+            formatter={(value, name) => {
+              if (value === null || value === undefined) return ["-", name as string];
+              return [fmtMoney(Number(value)), name as string];
+            }}
+            labelFormatter={(label) => `Year ${String(label)}`}
+          />
+          <Legend wrapperStyle={{ fontSize: 12 }} />
+          {refLines.map((b) => (
+            <ReferenceLine
+              key={b.rate}
+              y={b.max}
+              stroke="#9ca3af"
+              strokeDasharray="4 4"
+              label={{
+                value: `${(b.rate * 100).toFixed(0)}%`,
+                position: "right",
+                fontSize: 11,
+                fill: "#6b7280",
+              }}
+            />
+          ))}
+          <Line
+            type="monotone"
+            dataKey="baseline"
+            name="Baseline (no conversion)"
+            stroke="#6b7280"
+            strokeWidth={2}
+            dot={false}
+            isAnimationActive={false}
+          />
+          {selected && (
+            <Line
+              type="monotone"
+              dataKey="selected"
+              name={`Selected: ${fmtMoney(selected.conversion_amount)}/yr @ ${fmtPct(selected.rate_of_return)}`}
+              stroke="#f59e0b"
+              strokeWidth={2}
+              dot={false}
+              isAnimationActive={false}
+            />
+          )}
+        </LineChart>
+      </ResponsiveContainer>
+      <p className="text-[11px] text-gray-500 mt-2">
+        Y-axis: post-deduction taxable income (taxable_income minus standard deduction, floored at 0).
+        Dashed lines show federal bracket tops for the chosen filing status.
+      </p>
     </div>
   );
 }
@@ -343,12 +495,10 @@ function Results({
 function YearTable({ scenario }: { scenario: Scenario }) {
   return (
     <div>
-      <h3 className="font-semibold mb-2">
-        {fmtMoney(scenario.conversion_amount)}/yr conversion at {fmtPct(scenario.rate_of_return)} rate
-        <span className="ml-3 text-sm text-gray-600 font-normal">
-          (total tax {fmtMoney(scenario.summary.total_federal_tax)}, end balance {fmtMoney(scenario.summary.ending_total)})
-        </span>
-      </h3>
+      <p className="text-sm text-gray-600 mb-2">
+        Total tax {fmtMoney(scenario.summary.total_federal_tax)}, end balance{" "}
+        {fmtMoney(scenario.summary.ending_total)}
+      </p>
       <div className="overflow-x-auto">
         <table className="min-w-full text-sm border">
           <thead className="bg-gray-50">

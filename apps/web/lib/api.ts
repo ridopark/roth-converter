@@ -46,8 +46,15 @@ export interface Scenario {
   summary: ScenarioSummary;
 }
 
+export interface Bracket {
+  rate: number;
+  max: number;
+}
+
 export interface MatrixResponse {
   scenarios: Scenario[];
+  brackets: Bracket[];
+  standard_deduction: number;
 }
 
 const BACKEND = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8090";
@@ -82,6 +89,20 @@ export function parseAmountList(s: string): number[] {
     .filter((t) => t.length > 0)
     .map((t) => Number(t.replace(/[$,_]/g, "")))
     .filter((n) => !Number.isNaN(n) && n >= 0);
+}
+
+export function withBaselineCase(cases: number[]): number[] {
+  const seen = new Set<number>();
+  const out: number[] = [];
+  for (const c of cases) {
+    if (!seen.has(c)) {
+      seen.add(c);
+      out.push(c);
+    }
+  }
+  if (!seen.has(0)) out.push(0);
+  out.sort((a, b) => a - b);
+  return out;
 }
 
 export function parseRateList(s: string): number[] {

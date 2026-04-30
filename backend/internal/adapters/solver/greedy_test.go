@@ -298,6 +298,39 @@ func TestMatrix_InvalidInputs(t *testing.T) {
 	}
 }
 
+func TestMatrix_PopulatesBracketsAndStdDeduction(t *testing.T) {
+	tt := tables2026()
+	m := newMatrix(fakeRepo{tables: tt})
+	resp, err := m.Compute(domain.MatrixRequest{
+		Age:             60,
+		BirthYear:       1966,
+		Total401k:       100_000,
+		TraditionalPct:  1.0,
+		FilingStatus:    domain.FilingMFJ,
+		HorizonYears:    1,
+		RatesOfReturn:   []float64{0},
+		ConversionCases: []float64{0},
+	})
+	require.NoError(t, err)
+	assert.Equal(t, tt.OrdinaryBrackets[domain.FilingMFJ], resp.Brackets)
+	assert.InDelta(t, tt.StandardDeduction[domain.FilingMFJ], resp.StandardDeduction, 0.01)
+
+	// Filing-status sensitivity: single returns single's brackets and deduction.
+	resp2, err := m.Compute(domain.MatrixRequest{
+		Age:             60,
+		BirthYear:       1966,
+		Total401k:       100_000,
+		TraditionalPct:  1.0,
+		FilingStatus:    domain.FilingSingle,
+		HorizonYears:    1,
+		RatesOfReturn:   []float64{0},
+		ConversionCases: []float64{0},
+	})
+	require.NoError(t, err)
+	assert.Equal(t, tt.OrdinaryBrackets[domain.FilingSingle], resp2.Brackets)
+	assert.InDelta(t, tt.StandardDeduction[domain.FilingSingle], resp2.StandardDeduction, 0.01)
+}
+
 func TestMatrix_TaxTableLoadFailure(t *testing.T) {
 	m := newMatrix(fakeRepo{err: errors.New("boom")})
 	_, err := m.Compute(domain.MatrixRequest{
