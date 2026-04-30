@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import {
   CartesianGrid,
   Legend,
@@ -27,8 +27,8 @@ import {
 
 interface FormState {
   age: number;
-  total_401k: number;
-  traditional_pct: number;
+  traditional_balance: number;
+  roth_balance: number;
   filing_status: FilingStatus;
   annual_other_income: number;
   horizon_years: number;
@@ -40,20 +40,23 @@ interface FormState {
 
 const DEFAULT_FORM: FormState = {
   age: 60,
-  total_401k: 1_000_000,
-  traditional_pct: 70,
+  traditional_balance: 700_000,
+  roth_balance: 300_000,
   filing_status: "mfj",
   annual_other_income: 50_000,
   horizon_years: 10,
-  rates_str: "10, 15, 20, 25",
+  rates_str: "5, 7, 9, 11",
   conversion_cases_str: "0, 25000, 50000, 100000, 200000",
   include_rmd: true,
   tax_year: 2026,
 };
 
-interface SelectedCell {
+interface DialogState {
   rate: number;
   conversion: number;
+  x: number;
+  y: number;
+  z: number;
 }
 
 export default function Home() {
@@ -61,7 +64,42 @@ export default function Home() {
   const [resp, setResp] = useState<MatrixResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
-  const [selected, setSelected] = useState<SelectedCell | null>(null);
+  const [dialogs, setDialogs] = useState<DialogState[]>([]);
+  const zCounterRef = useRef(1000);
+
+  function nextZ() {
+    zCounterRef.current += 1;
+    return zCounterRef.current;
+  }
+
+  function toggleDialog(rate: number, conversion: number) {
+    setDialogs((prev) => {
+      const idx = prev.findIndex((d) => d.rate === rate && d.conversion === conversion);
+      if (idx >= 0) return prev.filter((_, i) => i !== idx);
+      const offset = prev.length * 30;
+      return [
+        ...prev,
+        { rate, conversion, x: 100 + offset, y: 120 + offset, z: nextZ() },
+      ];
+    });
+  }
+
+  function focusDialog(rate: number, conversion: number) {
+    const z = nextZ();
+    setDialogs((prev) =>
+      prev.map((d) => (d.rate === rate && d.conversion === conversion ? { ...d, z } : d))
+    );
+  }
+
+  function moveDialog(rate: number, conversion: number, x: number, y: number) {
+    setDialogs((prev) =>
+      prev.map((d) => (d.rate === rate && d.conversion === conversion ? { ...d, x, y } : d))
+    );
+  }
+
+  function closeDialog(rate: number, conversion: number) {
+    setDialogs((prev) => prev.filter((d) => !(d.rate === rate && d.conversion === conversion)));
+  }
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -72,13 +110,14 @@ export default function Home() {
       const cases = withBaselineCase(parseAmountList(form.conversion_cases_str));
       if (rates.length === 0) throw new Error("Need at least one rate of return");
       if (cases.length === 0) throw new Error("Need at least one conversion case");
-      const tradPct = form.traditional_pct / 100;
+      const total = form.traditional_balance + form.roth_balance;
+      const tradPct = total > 0 ? form.traditional_balance / total : 0;
       const r = await postMatrix({
         age: form.age,
         birth_year: form.tax_year - form.age,
-        total_401k: form.total_401k,
+        total_401k: total,
         traditional_pct: tradPct,
-        roth_pct: 1 - tradPct,
+        roth_pct: total > 0 ? form.roth_balance / total : 0,
         filing_status: form.filing_status,
         annual_other_income: form.annual_other_income,
         horizon_years: form.horizon_years,
@@ -88,7 +127,7 @@ export default function Home() {
         tax_year: form.tax_year,
       });
       setResp(r);
-      setSelected(null);
+      setDialogs([]);
     } catch (e: unknown) {
       setErr(e instanceof Error ? e.message : String(e));
     } finally {
@@ -129,7 +168,27 @@ export default function Home() {
           </Field>
           <Field
             label="Annual other taxable income"
-            hint="Wages, pension, taxable interest, or anything else taxable before the conversion. Held flat across the horizon (v1)."
+            hint={
+              <>
+                Anything taxed at ordinary-income rates that you receive each
+                year, separate from the 401(k) being converted. Held flat
+                across the horizon (v1).
+                <span className="mt-1 block">Include:</span>
+                <ul className="list-disc pl-4">
+                  <li>W-2 wages, self-employment / consulting income</li>
+                  <li>Pension, annuity, Traditional IRA withdrawals</li>
+                  <li>Taxable interest (savings, CDs, bonds), ordinary dividends</li>
+                  <li>Rental income, K-1 pass-through, royalties</li>
+                </ul>
+                <span className="mt-1 block">Do NOT include:</span>
+                <ul className="list-disc pl-4">
+                  <li>Roth / HSA qualified withdrawals (tax-free)</li>
+                  <li>Long-term capital gains, qualified dividends (different rates)</li>
+                  <li>Social Security (v1 does not model the taxable-portion rules)</li>
+                  <li>The Roth conversion itself (calculator adds it on top)</li>
+                </ul>
+              </>
+            }
           >
             <NumberInput
               value={form.annual_other_income}
@@ -147,26 +206,47 @@ export default function Home() {
         <fieldset className="border rounded p-4">
           <legend className="font-semibold px-2">401(k)</legend>
           <Field
-            label="Total 401(k) balance"
-            hint="Combined Traditional + Roth 401(k) today. Split by the next field."
+            label="Traditional 401(k) balance"
+            hint="Pre-tax 401(k) today. Conversions are pulled from this bucket and taxed as ordinary income the year they happen."
           >
-            <NumberInput value={form.total_401k} onChange={(v) => setForm({ ...form, total_401k: v })} />
-          </Field>
-          <Field
-            label="Traditional %"
-            hint="Share of the balance in pre-tax (Traditional). The remainder is Roth."
-          >
-            <input
-              type="number"
-              min={0}
-              max={100}
-              className="border rounded p-1 w-full"
-              value={form.traditional_pct}
-              onChange={(e) => setForm({ ...form, traditional_pct: Number(e.target.value) })}
+            <NumberInput
+              value={form.traditional_balance}
+              onChange={(v) => setForm({ ...form, traditional_balance: v })}
             />
           </Field>
-          <div className="text-xs text-gray-500 -mt-1 mb-2">
-            Roth %: {(100 - form.traditional_pct).toFixed(0)}%
+          <Field
+            label="Roth 401(k) balance"
+            hint="Already-taxed Roth 401(k) today. Grows tax-free; converted dollars land here."
+          >
+            <NumberInput
+              value={form.roth_balance}
+              onChange={(v) => setForm({ ...form, roth_balance: v })}
+            />
+          </Field>
+          <div className="rounded bg-amber-50 border border-amber-200 px-3 py-2 mb-3">
+            <div className="text-[11px] uppercase tracking-wide text-amber-900/70">
+              Total 401(k)
+            </div>
+            <div className="text-lg font-bold text-amber-900">
+              {fmtMoney(form.traditional_balance + form.roth_balance)}
+            </div>
+            {form.traditional_balance + form.roth_balance > 0 && (
+              <div className="text-xs text-amber-900/80 mt-0.5">
+                Traditional{" "}
+                {(
+                  (form.traditional_balance /
+                    (form.traditional_balance + form.roth_balance)) *
+                  100
+                ).toFixed(0)}
+                % / Roth{" "}
+                {(
+                  (form.roth_balance /
+                    (form.traditional_balance + form.roth_balance)) *
+                  100
+                ).toFixed(0)}
+                %
+              </div>
+            )}
           </div>
           <label className="flex items-start gap-2 text-sm">
             <input
@@ -198,19 +278,55 @@ export default function Home() {
           </Field>
           <Field
             label="Rates of return (%)"
-            hint="Comma-separated annual rates to sweep. Same nominal rate applied to Traditional and Roth."
+            hint={
+              <>
+                Comma-separated annual rates to sweep. Same nominal rate applied
+                to Traditional and Roth. Each rate runs as a separate scenario
+                so you can see how sensitive the outcome is to the assumption
+                you can&apos;t pin down.
+                <span className="mt-1 block">Realistic bounds:</span>
+                <ul className="list-disc pl-4">
+                  <li>5% - conservative / bond-heavy / pessimistic decade</li>
+                  <li>7% - long-term real S&amp;P 500 average</li>
+                  <li>9% - close to long-term nominal S&amp;P average</li>
+                  <li>11% - optimistic upside</li>
+                </ul>
+                <span className="mt-1 block">
+                  Rule of 72: years to double a balance is roughly 72 / rate.
+                  At 5% it doubles in ~14 years; at 7%, ~10 years; at 10%, ~7 years.
+                </span>
+              </>
+            }
           >
             <input
               type="text"
               className="border rounded p-1 w-full"
               value={form.rates_str}
               onChange={(e) => setForm({ ...form, rates_str: e.target.value })}
-              placeholder="10, 15, 20, 25"
+              placeholder="5, 7, 9, 11"
             />
           </Field>
           <Field
             label="Annual conversion cases ($)"
-            hint="Comma-separated annual conversion amounts to sweep. The $0 baseline is always included. Held constant each year, capped by Traditional balance after RMD. Tax is paid from outside the 401(k), so 100% of the conversion lands in Roth."
+            hint={
+              <>
+                Each number is a separate strategy, not a per-year amount.
+                The strategy converts that same dollar amount every year of
+                the horizon. So <code>50000</code> means &quot;convert $50k
+                each year for {form.horizon_years} years&quot;, totaling up to
+                ${form.horizon_years * 50}k converted (capped by your
+                Traditional balance once it runs out).
+                <span className="mt-1 block">Other rules:</span>
+                <ul className="list-disc pl-4">
+                  <li>$0 baseline is always added so every other row reads as a delta from doing nothing.</li>
+                  <li>Each year&apos;s conversion is capped by Traditional balance after RMD; once Traditional is empty, conversion drops to $0 for remaining years.</li>
+                  <li>Tax is paid from outside the 401(k), so 100% of the conversion lands in Roth.</li>
+                </ul>
+                <span className="mt-1 block">
+                  v1 does not optimize the path year-by-year (e.g., &quot;$100k in years 1-3, then $50k&quot;) - that is a v2 feature.
+                </span>
+              </>
+            }
           >
             <input
               type="text"
@@ -235,14 +351,11 @@ export default function Home() {
       {resp && (
         <Results
           resp={resp}
-          selected={selected}
-          onSelect={(cell) => {
-            setSelected((prev) =>
-              prev && prev.rate === cell.rate && prev.conversion === cell.conversion
-                ? null
-                : cell
-            );
-          }}
+          dialogs={dialogs}
+          onToggle={toggleDialog}
+          onFocus={focusDialog}
+          onMove={moveDialog}
+          onClose={closeDialog}
         />
       )}
     </main>
@@ -255,7 +368,7 @@ function Field({
   children,
 }: {
   label: string;
-  hint?: string;
+  hint?: React.ReactNode;
   children: React.ReactNode;
 }) {
   return (
@@ -284,12 +397,18 @@ function NumberInput({ value, onChange }: { value: number; onChange: (v: number)
 
 function Results({
   resp,
-  selected,
-  onSelect,
+  dialogs,
+  onToggle,
+  onFocus,
+  onMove,
+  onClose,
 }: {
   resp: MatrixResponse;
-  selected: SelectedCell | null;
-  onSelect: (cell: SelectedCell) => void;
+  dialogs: DialogState[];
+  onToggle: (rate: number, conversion: number) => void;
+  onFocus: (rate: number, conversion: number) => void;
+  onMove: (rate: number, conversion: number, x: number, y: number) => void;
+  onClose: (rate: number, conversion: number) => void;
 }) {
   const rates = useMemo(
     () => Array.from(new Set(resp.scenarios.map((s) => s.rate_of_return))).sort((a, b) => a - b),
@@ -304,25 +423,15 @@ function Results({
     return resp.scenarios.find((s) => s.rate_of_return === r && s.conversion_amount === c);
   }
 
-  const baselineRate = selected ? selected.rate : rates[0];
-  const baseline = find(baselineRate, 0);
-  const selectedScenario = selected ? find(selected.rate, selected.conversion) : null;
+  function isOpen(r: number, c: number): boolean {
+    return dialogs.some((d) => d.rate === r && d.conversion === c);
+  }
 
   return (
     <div>
-      <h2 className="text-xl font-semibold mb-3">Taxable income vs federal brackets</h2>
-      {baseline && (
-        <BracketChart
-          baseline={baseline}
-          selected={selectedScenario ?? null}
-          brackets={resp.brackets}
-          stdDeduction={resp.standard_deduction}
-        />
-      )}
-
-      <h2 className="text-xl font-semibold mb-3 mt-8">Comparison: total tax paid and ending balance after horizon</h2>
+      <h2 className="text-xl font-semibold mb-3">Comparison: total tax paid and ending balance after horizon</h2>
       <p className="text-xs text-gray-500 mb-2">
-        Click any cell to drill into its year-by-year detail below. Click the same cell again to clear.
+        Click cells to open draggable drill-in dialogs. Click again to close. Open multiple to compare side-by-side.
       </p>
       <div className="overflow-x-auto mb-6">
         <table className="min-w-full text-sm border">
@@ -341,20 +450,19 @@ function Results({
                 {rates.map((r) => {
                   const s = find(r, c);
                   if (!s) return <td key={r} className="p-2 border">-</td>;
-                  const isSelected =
-                    selected !== null && selected.rate === r && selected.conversion === c;
+                  const open = isOpen(r, c);
                   return (
                     <td
                       key={r}
-                      className={`p-0 border ${isSelected ? "ring-2 ring-amber-500 ring-inset" : ""}`}
+                      className={`p-0 border ${open ? "ring-2 ring-amber-500 ring-inset" : ""}`}
                     >
                       <button
                         type="button"
-                        onClick={() => onSelect({ rate: r, conversion: c })}
-                        aria-pressed={isSelected}
-                        aria-label={`Select ${fmtMoney(c)} per year at ${fmtPct(r)}`}
+                        onClick={() => onToggle(r, c)}
+                        aria-pressed={open}
+                        aria-label={`Open drill-in for ${fmtMoney(c)} per year at ${fmtPct(r)}`}
                         className={`w-full text-left p-2 cursor-pointer focus:outline-none focus-visible:bg-amber-50 hover:bg-amber-50 ${
-                          isSelected ? "bg-amber-50" : ""
+                          open ? "bg-amber-50" : ""
                         }`}
                       >
                         <div className="text-xs text-gray-500">tax</div>
@@ -374,15 +482,105 @@ function Results({
         </table>
       </div>
 
-      {selectedScenario && (
-        <div>
-          <h2 className="text-xl font-semibold mb-3">
-            Year-by-year for {fmtMoney(selectedScenario.conversion_amount)}/yr conversion at{" "}
-            {fmtPct(selectedScenario.rate_of_return)} rate
-          </h2>
-          <YearTable scenario={selectedScenario} />
-        </div>
-      )}
+      {dialogs.map((d) => {
+        const scenario = find(d.rate, d.conversion);
+        const baseline = find(d.rate, 0) ?? null;
+        if (!scenario) return null;
+        return (
+          <DrillDialog
+            key={`${d.rate}-${d.conversion}`}
+            dialog={d}
+            scenario={scenario}
+            baseline={baseline}
+            brackets={resp.brackets}
+            stdDeduction={resp.standard_deduction}
+            onFocus={() => onFocus(d.rate, d.conversion)}
+            onMove={(x, y) => onMove(d.rate, d.conversion, x, y)}
+            onClose={() => onClose(d.rate, d.conversion)}
+          />
+        );
+      })}
+    </div>
+  );
+}
+
+function DrillDialog({
+  dialog,
+  scenario,
+  baseline,
+  brackets,
+  stdDeduction,
+  onFocus,
+  onMove,
+  onClose,
+}: {
+  dialog: DialogState;
+  scenario: Scenario;
+  baseline: Scenario | null;
+  brackets: Bracket[];
+  stdDeduction: number;
+  onFocus: () => void;
+  onMove: (x: number, y: number) => void;
+  onClose: () => void;
+}) {
+  function onTitleMouseDown(e: React.MouseEvent) {
+    if ((e.target as HTMLElement).closest("button")) return;
+    e.preventDefault();
+    onFocus();
+    const startX = e.clientX;
+    const startY = e.clientY;
+    const origX = dialog.x;
+    const origY = dialog.y;
+    function onMouseMove(ev: MouseEvent) {
+      onMove(origX + ev.clientX - startX, origY + ev.clientY - startY);
+    }
+    function onMouseUp() {
+      window.removeEventListener("mousemove", onMouseMove);
+      window.removeEventListener("mouseup", onMouseUp);
+    }
+    window.addEventListener("mousemove", onMouseMove);
+    window.addEventListener("mouseup", onMouseUp);
+  }
+
+  return (
+    <div
+      className="fixed bg-white border-2 border-amber-300 rounded shadow-2xl flex flex-col"
+      style={{
+        top: dialog.y,
+        left: dialog.x,
+        zIndex: dialog.z,
+        width: "min(90vw, 800px)",
+        maxHeight: "80vh",
+      }}
+      onMouseDown={onFocus}
+    >
+      <div
+        className="cursor-move bg-amber-500 text-white px-3 py-2 flex items-center justify-between rounded-t select-none"
+        onMouseDown={onTitleMouseDown}
+      >
+        <h3 className="font-semibold text-sm">
+          Year-by-year for {fmtMoney(dialog.conversion)}/yr conversion at {fmtPct(dialog.rate)} rate
+        </h3>
+        <button
+          type="button"
+          onClick={onClose}
+          className="text-white hover:text-amber-100 text-xl leading-none px-2"
+          aria-label="Close dialog"
+        >
+          &times;
+        </button>
+      </div>
+      <div className="p-4 overflow-y-auto">
+        {baseline && (
+          <BracketChart
+            baseline={baseline}
+            selected={scenario}
+            brackets={brackets}
+            stdDeduction={stdDeduction}
+          />
+        )}
+        <YearTable scenario={scenario} />
+      </div>
     </div>
   );
 }
