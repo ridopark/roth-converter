@@ -67,12 +67,24 @@ func (m *Matrix) Compute(req domain.MatrixRequest) (domain.MatrixResponse, error
 
 	stateRate := stateTaxRate(req.State, tables)
 
+	in := projectInputs{
+		startTrad:    startTrad,
+		startRoth:    startRoth,
+		otherIncome:  req.AnnualOtherIncome,
+		status:       req.FilingStatus,
+		includeRMD:   req.IncludeRMD,
+		rmdStartAge:  rmdStart,
+		startAge:     req.Age,
+		startYear:    year,
+		horizon:      horizon,
+		tables:       tables,
+		stateRate:    stateRate,
+	}
+
 	scenarios := make([]domain.Scenario, 0, len(rates)*len(cases))
 	for _, r := range rates {
 		for _, c := range cases {
-			s := projectScenario(r, c, startTrad, startRoth, req.AnnualOtherIncome,
-				req.FilingStatus, req.IncludeRMD, rmdStart, req.Age, year, horizon, tables, stateRate)
-			scenarios = append(scenarios, s)
+			scenarios = append(scenarios, projectScenario(r, c, in))
 		}
 	}
 	return domain.MatrixResponse{
@@ -93,25 +105,35 @@ func stateTaxRate(code string, tables domain.TaxTables) float64 {
 	return tables.StateTaxRates[code]
 }
 
-func projectScenario(
-	rate, convCase, startTrad, startRoth, otherIncome float64,
-	status domain.FilingStatus, includeRMD bool, rmdStartAge, startAge, startYear, horizon int,
-	tables domain.TaxTables, stateRate float64,
-) domain.Scenario {
-	trad := startTrad
-	roth := startRoth
-	years := make([]domain.ScenarioYear, 0, horizon)
-	stdDed := tables.StandardDeduction[status]
+type projectInputs struct {
+	startTrad   float64
+	startRoth   float64
+	otherIncome float64
+	status      domain.FilingStatus
+	includeRMD  bool
+	rmdStartAge int
+	startAge    int
+	startYear   int
+	horizon     int
+	tables      domain.TaxTables
+	stateRate   float64
+}
+
+func projectScenario(rate, convCase float64, in projectInputs) domain.Scenario {
+	trad := in.startTrad
+	roth := in.startRoth
+	years := make([]domain.ScenarioYear, 0, in.horizon)
+	stdDed := in.tables.StandardDeduction[in.status]
 
 	var sumFedTax, sumStateTax, sumConv, sumRMD float64
 
-	for i := 0; i < horizon; i++ {
-		age := startAge + i
-		calYear := startYear + i
+	for i := 0; i < in.horizon; i++ {
+		age := in.startAge + i
+		calYear := in.startYear + i
 
 		var rmd float64
-		if includeRMD && age >= rmdStartAge && trad > 0 {
-			rmd = computeRMD(trad, age, tables.RMDDivisors)
+		if in.includeRMD && age >= in.rmdStartAge && trad > 0 {
+			rmd = computeRMD(trad, age, in.tables.RMDDivisors)
 		}
 
 		conv := convCase
@@ -122,13 +144,13 @@ func projectScenario(
 			conv = 0
 		}
 
-		taxable := otherIncome + conv + rmd
+		taxable := in.otherIncome + conv + rmd
 		afterStd := taxable - stdDed
 		if afterStd < 0 {
 			afterStd = 0
 		}
-		fedTax := ordinaryTax(afterStd, status, tables)
-		stateTax := afterStd * stateRate
+		fedTax := ordinaryTax(afterStd, in.status, in.tables)
+		stateTax := afterStd * in.stateRate
 
 		startingTrad := trad
 		startingRoth := roth

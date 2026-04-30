@@ -61,6 +61,28 @@ func (h *Handlers) Brackets(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+func (h *Handlers) States(w http.ResponseWriter, r *http.Request) {
+	year := 2026
+	if y := r.URL.Query().Get("year"); y != "" {
+		if v, err := strconv.Atoi(y); err == nil && v > 0 {
+			year = v
+		}
+	}
+	tables, err := h.svc.Tables.Get(year)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	noTax := make([]string, 0, len(tables.NoTaxStates))
+	for code := range tables.NoTaxStates {
+		noTax = append(noTax, code)
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"no_tax": noTax,
+		"rates":  tables.StateTaxRates,
+	})
+}
+
 func (h *Handlers) Visit(w http.ResponseWriter, r *http.Request) {
 	country := r.Header.Get("CF-IPCountry")
 	if country == "" {

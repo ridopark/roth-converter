@@ -19,6 +19,7 @@ func New(svc *app.Service, cfg config.Config, log zerolog.Logger) http.Handler {
 	mux.HandleFunc("POST /matrix", h.Matrix)
 	mux.HandleFunc("POST /visit", h.Visit)
 	mux.HandleFunc("GET /brackets", h.Brackets)
+	mux.HandleFunc("GET /states", h.States)
 
 	return cors(cfg.CORSAllowOrigin, mux)
 }

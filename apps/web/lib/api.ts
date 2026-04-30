@@ -61,41 +61,56 @@ export interface MatrixResponse {
   state_tax_rate: number;
 }
 
-export const US_STATES: { code: string; name: string; rate?: number; noTax?: boolean }[] = [
-  { code: "", name: "None / not listed (0%)" },
-  { code: "AK", name: "Alaska", noTax: true },
-  { code: "AZ", name: "Arizona", rate: 0.025 },
-  { code: "CA", name: "California", rate: 0.133 },
-  { code: "CO", name: "Colorado", rate: 0.044 },
-  { code: "DC", name: "District of Columbia", rate: 0.1075 },
-  { code: "FL", name: "Florida", noTax: true },
-  { code: "GA", name: "Georgia", rate: 0.0539 },
-  { code: "HI", name: "Hawaii", rate: 0.11 },
-  { code: "IL", name: "Illinois", rate: 0.0495 },
-  { code: "IN", name: "Indiana", rate: 0.03 },
-  { code: "MA", name: "Massachusetts", rate: 0.09 },
-  { code: "MD", name: "Maryland", rate: 0.0575 },
-  { code: "MI", name: "Michigan", rate: 0.0425 },
-  { code: "MN", name: "Minnesota", rate: 0.0985 },
-  { code: "MS", name: "Mississippi", rate: 0 },
-  { code: "NC", name: "North Carolina", rate: 0.0399 },
-  { code: "NH", name: "New Hampshire", noTax: true },
-  { code: "NJ", name: "New Jersey", rate: 0.1075 },
-  { code: "NV", name: "Nevada", noTax: true },
-  { code: "NY", name: "New York", rate: 0.109 },
-  { code: "OH", name: "Ohio", rate: 0.035 },
-  { code: "OR", name: "Oregon", rate: 0.099 },
-  { code: "PA", name: "Pennsylvania", rate: 0 },
-  { code: "SD", name: "South Dakota", noTax: true },
-  { code: "TN", name: "Tennessee", noTax: true },
-  { code: "TX", name: "Texas", noTax: true },
-  { code: "VA", name: "Virginia", rate: 0.0575 },
-  { code: "VT", name: "Vermont", rate: 0.0875 },
-  { code: "WA", name: "Washington", noTax: true },
-  { code: "WY", name: "Wyoming", noTax: true },
-];
+const STATE_NAMES: Record<string, string> = {
+  AK: "Alaska", AL: "Alabama", AR: "Arkansas", AZ: "Arizona", CA: "California",
+  CO: "Colorado", CT: "Connecticut", DC: "District of Columbia", DE: "Delaware",
+  FL: "Florida", GA: "Georgia", HI: "Hawaii", IA: "Iowa", ID: "Idaho",
+  IL: "Illinois", IN: "Indiana", KS: "Kansas", KY: "Kentucky", LA: "Louisiana",
+  MA: "Massachusetts", MD: "Maryland", ME: "Maine", MI: "Michigan", MN: "Minnesota",
+  MO: "Missouri", MS: "Mississippi", MT: "Montana", NC: "North Carolina",
+  ND: "North Dakota", NE: "Nebraska", NH: "New Hampshire", NJ: "New Jersey",
+  NM: "New Mexico", NV: "Nevada", NY: "New York", OH: "Ohio", OK: "Oklahoma",
+  OR: "Oregon", PA: "Pennsylvania", RI: "Rhode Island", SC: "South Carolina",
+  SD: "South Dakota", TN: "Tennessee", TX: "Texas", UT: "Utah", VA: "Virginia",
+  VT: "Vermont", WA: "Washington", WI: "Wisconsin", WV: "West Virginia",
+  WY: "Wyoming",
+};
+
+export interface StateOption {
+  code: string;
+  name: string;
+  rate?: number;
+  noTax?: boolean;
+}
 
 const BACKEND = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8090";
+
+export interface StatesResponse {
+  no_tax: string[];
+  rates: Record<string, number>;
+}
+
+export async function getStates(year: number): Promise<StatesResponse> {
+  const r = await fetch(`${BACKEND}/states?year=${year}`);
+  if (!r.ok) throw new Error(`states request failed: ${r.status}`);
+  return r.json();
+}
+
+export function buildStateOptions(s: StatesResponse): StateOption[] {
+  const codes = new Set<string>([...s.no_tax, ...Object.keys(s.rates)]);
+  const options: StateOption[] = [{ code: "", name: "None / not listed (0%)" }];
+  for (const code of Array.from(codes).sort()) {
+    const noTax = s.no_tax.includes(code);
+    options.push({
+      code,
+      name: STATE_NAMES[code] ?? code,
+      rate: noTax ? undefined : s.rates[code],
+      noTax,
+    });
+  }
+  return options;
+}
+
 
 export async function postMatrix(req: MatrixRequest): Promise<MatrixResponse> {
   const r = await fetch(`${BACKEND}/matrix`, {

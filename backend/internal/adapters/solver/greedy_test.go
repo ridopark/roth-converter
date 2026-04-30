@@ -307,54 +307,36 @@ func TestMatrix_StateTaxApplied(t *testing.T) {
 	// MFJ, $50k other income, no conv, no RMD, 1 yr horizon.
 	// taxable = 50k, after_std = 17,800.
 	// fed_tax = 1,780. CA state_tax = 17,800 * 0.10 = 1,780.
-	respCA, err := m.Compute(domain.MatrixRequest{
-		Age:               60,
-		BirthYear:         1966,
-		Total401k:         100_000,
-		TraditionalPct:    1.0,
-		FilingStatus:      domain.FilingMFJ,
-		AnnualOtherIncome: 50_000,
-		HorizonYears:      1,
-		RatesOfReturn:     []float64{0},
-		ConversionCases:   []float64{0},
-		State:             "CA",
-	})
-	require.NoError(t, err)
-	assert.InDelta(t, 0.10, respCA.StateTaxRate, 0.0001)
-	assert.InDelta(t, 1780, respCA.Scenarios[0].Years[0].StateTax, 0.01)
-	assert.InDelta(t, 1780, respCA.Scenarios[0].Summary.TotalStateTax, 0.01)
-
-	// TX (no_tax) -> 0.
-	respTX, err := m.Compute(domain.MatrixRequest{
-		Age:               60,
-		BirthYear:         1966,
-		Total401k:         100_000,
-		TraditionalPct:    1.0,
-		FilingStatus:      domain.FilingMFJ,
-		AnnualOtherIncome: 50_000,
-		HorizonYears:      1,
-		RatesOfReturn:     []float64{0},
-		ConversionCases:   []float64{0},
-		State:             "TX",
-	})
-	require.NoError(t, err)
-	assert.InDelta(t, 0, respTX.StateTaxRate, 0.0001)
-	assert.InDelta(t, 0, respTX.Scenarios[0].Years[0].StateTax, 0.01)
-
-	// Empty state -> 0.
-	respNone, err := m.Compute(domain.MatrixRequest{
-		Age:               60,
-		BirthYear:         1966,
-		Total401k:         100_000,
-		TraditionalPct:    1.0,
-		FilingStatus:      domain.FilingMFJ,
-		AnnualOtherIncome: 50_000,
-		HorizonYears:      1,
-		RatesOfReturn:     []float64{0},
-		ConversionCases:   []float64{0},
-	})
-	require.NoError(t, err)
-	assert.InDelta(t, 0, respNone.StateTaxRate, 0.0001)
+	cases := []struct {
+		name        string
+		state       string
+		wantRate    float64
+		wantStateTx float64
+	}{
+		{"CA rated", "CA", 0.10, 1780},
+		{"TX no_tax", "TX", 0, 0},
+		{"empty state", "", 0, 0},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			resp, err := m.Compute(domain.MatrixRequest{
+				Age:               60,
+				BirthYear:         1966,
+				Total401k:         100_000,
+				TraditionalPct:    1.0,
+				FilingStatus:      domain.FilingMFJ,
+				AnnualOtherIncome: 50_000,
+				HorizonYears:      1,
+				RatesOfReturn:     []float64{0},
+				ConversionCases:   []float64{0},
+				State:             tc.state,
+			})
+			require.NoError(t, err)
+			assert.InDelta(t, tc.wantRate, resp.StateTaxRate, 0.0001)
+			assert.InDelta(t, tc.wantStateTx, resp.Scenarios[0].Years[0].StateTax, 0.01)
+			assert.InDelta(t, tc.wantStateTx, resp.Scenarios[0].Summary.TotalStateTax, 0.01)
+		})
+	}
 }
 
 func TestMatrix_PopulatesBracketsAndStdDeduction(t *testing.T) {

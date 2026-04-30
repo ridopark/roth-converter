@@ -21,7 +21,9 @@ import {
   pingVisit,
   withBaselineCase,
   getBrackets,
-  US_STATES,
+  getStates,
+  buildStateOptions,
+  type StateOption,
   type Bracket,
   type MatrixResponse,
   type FilingStatus,
@@ -71,6 +73,7 @@ export default function Home() {
   const [err, setErr] = useState<string | null>(null);
   const [dialogs, setDialogs] = useState<DialogState[]>([]);
   const [bracketsInfo, setBracketsInfo] = useState<{ brackets: Bracket[]; standard_deduction: number } | null>(null);
+  const [stateOptions, setStateOptions] = useState<StateOption[]>([{ code: "", name: "None / not listed (0%)" }]);
   const zCounterRef = useRef(1000);
 
   useEffect(() => {
@@ -90,6 +93,18 @@ export default function Home() {
       cancelled = true;
     };
   }, [form.filing_status, form.tax_year]);
+
+  useEffect(() => {
+    let cancelled = false;
+    getStates(form.tax_year)
+      .then((s) => {
+        if (!cancelled) setStateOptions(buildStateOptions(s));
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [form.tax_year]);
 
   function fillBracket(targetRate: number) {
     if (!bracketsInfo) return;
@@ -278,13 +293,13 @@ export default function Home() {
               value={form.state}
               onChange={(e) => setForm({ ...form, state: e.target.value })}
             >
-              {US_STATES.map((s) => {
+              {stateOptions.map((s) => {
                 const label =
                   s.code === ""
                     ? s.name
                     : s.noTax
                       ? `${s.name} - no state income tax`
-                      : `${s.name} - ${(s.rate ?? 0) * 100}%`;
+                      : `${s.name} - ${((s.rate ?? 0) * 100).toFixed(2).replace(/\.?0+$/, "")}%`;
                 return (
                   <option key={s.code} value={s.code}>
                     {label}
@@ -577,6 +592,8 @@ function Results({
     return dialogs.some((d) => d.rate === r && d.conversion === c);
   }
 
+  const hasStateTax = resp.state_tax_rate > 0;
+
   return (
     <div>
       <h2 className="text-xl font-semibold mb-3">Comparison: total tax paid and ending balance after horizon</h2>
@@ -633,10 +650,10 @@ function Results({
                         }`}
                       >
                         <div className="text-xs text-gray-500 dark:text-gray-400">
-                          {s.summary.total_state_tax > 0 ? "fed tax" : "tax"}
+                          {hasStateTax ? "fed tax" : "tax"}
                         </div>
                         <div className="font-semibold">{fmtMoney(s.summary.total_federal_tax)}</div>
-                        {s.summary.total_state_tax > 0 && (
+                        {hasStateTax && (
                           <>
                             <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">state tax</div>
                             <div className="font-semibold">{fmtMoney(s.summary.total_state_tax)}</div>
@@ -703,26 +720,32 @@ function OverviewCharts({
   const data = useMemo(() => {
     const baselineScenario = find(chartRate, cases[0]);
     if (!baselineScenario) return [];
+    const cumByCase: Record<string, number[]> = {};
+    cases.forEach((c, idx) => {
+      const s = find(chartRate, c);
+      if (!s) return;
+      const key = seriesKeys[idx];
+      const series: number[] = [];
+      let running = 0;
+      for (const y of s.years) {
+        running += y.federal_tax + y.state_tax;
+        series.push(running);
+      }
+      cumByCase[key] = series;
+    });
     return baselineScenario.years.map((_, i) => {
-      const cumByCase: Record<string, number> = {};
-      const tradByCase: Record<string, number> = {};
-      const rothByCase: Record<string, number> = {};
+      const cum: Record<string, number> = {};
+      const trad: Record<string, number> = {};
+      const roth: Record<string, number> = {};
       cases.forEach((c, idx) => {
         const s = find(chartRate, c);
         if (!s) return;
         const key = seriesKeys[idx];
-        let cumTax = 0;
-        for (let j = 0; j <= i; j++) cumTax += s.years[j].federal_tax + s.years[j].state_tax;
-        cumByCase[key] = cumTax;
-        tradByCase[key] = s.years[i].ending_traditional;
-        rothByCase[key] = s.years[i].ending_roth;
+        cum[key] = cumByCase[key][i];
+        trad[key] = s.years[i].ending_traditional;
+        roth[key] = s.years[i].ending_roth;
       });
-      return {
-        year: baselineScenario.years[i].calendar_year,
-        cum: cumByCase,
-        trad: tradByCase,
-        roth: rothByCase,
-      };
+      return { year: baselineScenario.years[i].calendar_year, cum, trad, roth };
     });
   }, [chartRate, cases, find, seriesKeys, resp]);
 
