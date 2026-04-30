@@ -112,6 +112,44 @@ export function buildStateOptions(s: StatesResponse): StateOption[] {
 }
 
 
+export interface OptimizeRequest {
+  age: number;
+  birth_year: number;
+  total_401k: number;
+  traditional_pct: number;
+  roth_pct: number;
+  filing_status: FilingStatus;
+  annual_other_income: number;
+  horizon_years: number;
+  rate_of_return: number;
+  target_bracket_rate: number;
+  include_rmd: boolean;
+  tax_year: number;
+  state: string;
+}
+
+export interface OptimizePlan {
+  plan: Scenario;
+  brackets: Bracket[];
+  standard_deduction: number;
+  state_tax_rate: number;
+  target_bracket_rate: number;
+  target_bracket_top: number;
+}
+
+export async function postOptimize(req: OptimizeRequest): Promise<OptimizePlan> {
+  const r = await fetch(`${BACKEND}/optimize`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(req),
+  });
+  if (!r.ok) {
+    const text = await r.text();
+    throw new Error(`optimize request failed: ${r.status} ${text}`);
+  }
+  return r.json();
+}
+
 export async function postMatrix(req: MatrixRequest): Promise<MatrixResponse> {
   const r = await fetch(`${BACKEND}/matrix`, {
     method: "POST",

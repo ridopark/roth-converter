@@ -23,12 +23,16 @@ import {
   getBrackets,
   getStates,
   buildStateOptions,
+  postOptimize,
   type StateOption,
+  type OptimizePlan,
   type Bracket,
   type MatrixResponse,
   type FilingStatus,
   type Scenario,
 } from "@/lib/api";
+
+type Mode = "matrix" | "plan";
 
 interface FormState {
   age: number;
@@ -42,6 +46,8 @@ interface FormState {
   include_rmd: boolean;
   tax_year: number;
   state: string;
+  rate_of_return: number;
+  target_bracket_rate: number;
 }
 
 const DEFAULT_FORM: FormState = {
@@ -56,6 +62,8 @@ const DEFAULT_FORM: FormState = {
   include_rmd: true,
   tax_year: 2026,
   state: "",
+  rate_of_return: 0.07,
+  target_bracket_rate: 0.22,
 };
 
 interface DialogState {
@@ -68,7 +76,9 @@ interface DialogState {
 
 export default function Home() {
   const [form, setForm] = useState<FormState>(DEFAULT_FORM);
+  const [mode, setMode] = useState<Mode>("matrix");
   const [resp, setResp] = useState<MatrixResponse | null>(null);
+  const [plan, setPlan] = useState<OptimizePlan | null>(null);
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [dialogs, setDialogs] = useState<DialogState[]>([]);
@@ -157,30 +167,53 @@ export default function Home() {
     e.preventDefault();
     setLoading(true);
     setErr(null);
+    const total = form.traditional_balance + form.roth_balance;
+    const tradPct = total > 0 ? form.traditional_balance / total : 0;
+    const rothPct = total > 0 ? form.roth_balance / total : 0;
     try {
-      const rates = parseRateList(form.rates_str);
-      const cases = withBaselineCase(parseAmountList(form.conversion_cases_str));
-      if (rates.length === 0) throw new Error("Need at least one rate of return");
-      if (cases.length === 0) throw new Error("Need at least one conversion case");
-      const total = form.traditional_balance + form.roth_balance;
-      const tradPct = total > 0 ? form.traditional_balance / total : 0;
-      const r = await postMatrix({
-        age: form.age,
-        birth_year: form.tax_year - form.age,
-        total_401k: total,
-        traditional_pct: tradPct,
-        roth_pct: total > 0 ? form.roth_balance / total : 0,
-        filing_status: form.filing_status,
-        annual_other_income: form.annual_other_income,
-        horizon_years: form.horizon_years,
-        rates_of_return: rates,
-        conversion_cases: cases,
-        include_rmd: form.include_rmd,
-        tax_year: form.tax_year,
-        state: form.state,
-      });
-      setResp(r);
-      setDialogs([]);
+      if (mode === "matrix") {
+        const rates = parseRateList(form.rates_str);
+        const cases = withBaselineCase(parseAmountList(form.conversion_cases_str));
+        if (rates.length === 0) throw new Error("Need at least one rate of return");
+        if (cases.length === 0) throw new Error("Need at least one conversion case");
+        const r = await postMatrix({
+          age: form.age,
+          birth_year: form.tax_year - form.age,
+          total_401k: total,
+          traditional_pct: tradPct,
+          roth_pct: rothPct,
+          filing_status: form.filing_status,
+          annual_other_income: form.annual_other_income,
+          horizon_years: form.horizon_years,
+          rates_of_return: rates,
+          conversion_cases: cases,
+          include_rmd: form.include_rmd,
+          tax_year: form.tax_year,
+          state: form.state,
+        });
+        setResp(r);
+        setPlan(null);
+        setDialogs([]);
+      } else {
+        const p = await postOptimize({
+          age: form.age,
+          birth_year: form.tax_year - form.age,
+          total_401k: total,
+          traditional_pct: tradPct,
+          roth_pct: rothPct,
+          filing_status: form.filing_status,
+          annual_other_income: form.annual_other_income,
+          horizon_years: form.horizon_years,
+          rate_of_return: form.rate_of_return,
+          target_bracket_rate: form.target_bracket_rate,
+          include_rmd: form.include_rmd,
+          tax_year: form.tax_year,
+          state: form.state,
+        });
+        setPlan(p);
+        setResp(null);
+        setDialogs([]);
+      }
     } catch (e: unknown) {
       setErr(e instanceof Error ? e.message : String(e));
     } finally {
@@ -194,9 +227,27 @@ export default function Home() {
         <h1 className="text-3xl font-bold">Roth Converter</h1>
         <ThemeToggle />
       </div>
-      <p className="text-gray-600 dark:text-gray-300 mb-6 text-sm">
-        Pick a few annual conversion amounts. See the tax cost and 401(k) balance over the next 10 years across multiple rate-of-return scenarios.
+      <p className="text-gray-600 dark:text-gray-300 mb-3 text-sm">
+        {mode === "matrix"
+          ? "Pick a few annual conversion amounts. See the tax cost and 401(k) balance over the next 10 years across multiple rate-of-return scenarios."
+          : "Pick a target federal bracket. The optimizer fills it each year (capped by your Traditional balance after RMD) and returns one deterministic plan."}
       </p>
+      <div className="inline-flex rounded-md border border-gray-300 dark:border-gray-600 mb-6 overflow-hidden">
+        {(["matrix", "plan"] as const).map((m) => (
+          <button
+            key={m}
+            type="button"
+            onClick={() => setMode(m)}
+            className={`px-3 py-1.5 text-sm ${
+              mode === m
+                ? "bg-amber-500 text-white"
+                : "bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200 hover:bg-amber-50 dark:hover:bg-gray-700"
+            }`}
+          >
+            {m === "matrix" ? "Sensitivity matrix" : "Bracket-fill plan"}
+          </button>
+        ))}
+      </div>
 
       <form onSubmit={submit} className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
         <fieldset className="border border-gray-200 dark:border-gray-700 rounded p-4">
@@ -383,6 +434,7 @@ export default function Home() {
               onChange={(v) => setForm({ ...form, horizon_years: v })}
             />
           </Field>
+          {mode === "matrix" && (
           <Field
             label="Rates of return (%)"
             hint={
@@ -413,6 +465,8 @@ export default function Home() {
               placeholder="5, 7, 9, 11"
             />
           </Field>
+          )}
+          {mode === "matrix" && (
           <Field
             label="Annual conversion cases ($)"
             hint={
@@ -473,19 +527,78 @@ export default function Home() {
               </div>
             )}
           </Field>
+          )}
+          {mode === "plan" && (
+            <>
+              <Field
+                label="Rate of return (%)"
+                hint={
+                  <>
+                    Single annual compound rate applied to both Traditional and Roth across the horizon.
+                    Same convention as matrix mode (5-9% is realistic; pick one for the plan).
+                  </>
+                }
+              >
+                <input
+                  type="number"
+                  step={0.1}
+                  className="border border-gray-300 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100 rounded p-1 w-full"
+                  value={(form.rate_of_return * 100).toFixed(1)}
+                  onChange={(e) =>
+                    setForm({ ...form, rate_of_return: Number(e.target.value) / 100 })
+                  }
+                />
+              </Field>
+              <Field
+                label="Target bracket"
+                hint={
+                  <>
+                    Each year the optimizer converts as much as fits below the top of this federal bracket
+                    (after standard deduction and any RMD), capped by what remains in Traditional.
+                  </>
+                }
+              >
+                {bracketsInfo ? (
+                  <div className="flex flex-wrap gap-1">
+                    {bracketsInfo.brackets
+                      .filter((b) => b.max > 0 && b.rate < 0.32)
+                      .map((b) => {
+                        const selected = Math.abs(form.target_bracket_rate - b.rate) < 1e-9;
+                        return (
+                          <button
+                            key={b.rate}
+                            type="button"
+                            onClick={() => setForm({ ...form, target_bracket_rate: b.rate })}
+                            className={`px-2 py-0.5 text-xs rounded border ${
+                              selected
+                                ? "bg-amber-500 text-white border-amber-600"
+                                : "bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200 border-gray-300 dark:border-gray-600 hover:bg-amber-50 dark:hover:bg-gray-700"
+                            }`}
+                          >
+                            Fill {(b.rate * 100).toFixed(0)}% (top ${(b.max / 1000).toFixed(0)}k)
+                          </button>
+                        );
+                      })}
+                  </div>
+                ) : (
+                  <div className="text-xs text-gray-500 dark:text-gray-400">Loading brackets...</div>
+                )}
+              </Field>
+            </>
+          )}
           <button
             type="submit"
             disabled={loading}
             className="mt-2 w-full rounded bg-amber-500 text-white px-4 py-2 font-semibold hover:bg-amber-600 disabled:opacity-50"
           >
-            {loading ? "Computing..." : "Compute matrix"}
+            {loading ? "Computing..." : mode === "matrix" ? "Compute matrix" : "Find plan"}
           </button>
         </fieldset>
       </form>
 
       {err && <div className="rounded bg-red-100 dark:bg-red-900/40 text-red-800 dark:text-red-200 p-3 mb-4">{err}</div>}
 
-      {resp && (
+      {resp && mode === "matrix" && (
         <Results
           resp={resp}
           dialogs={dialogs}
@@ -495,7 +608,32 @@ export default function Home() {
           onClose={closeDialog}
         />
       )}
+      {plan && mode === "plan" && <PlanView plan={plan} />}
     </main>
+  );
+}
+
+function PlanView({ plan }: { plan: OptimizePlan }) {
+  const scenario = plan.plan;
+  const bracketLabel = `${(plan.target_bracket_rate * 100).toFixed(0)}%`;
+  return (
+    <div>
+      <h2 className="text-xl font-semibold mb-3">
+        Bracket-fill plan: fill the {bracketLabel} bracket each year (top ${plan.target_bracket_top.toLocaleString()})
+      </h2>
+      <p className="text-xs text-gray-500 dark:text-gray-400 mb-3">
+        Single deterministic plan at {fmtPct(scenario.rate_of_return)} rate of return.
+        Each year converts as much as fits below the {bracketLabel} bracket top (post-deduction, after any RMD),
+        capped by what remains in Traditional. Total converted: <strong>{fmtMoney(scenario.summary.total_converted)}</strong>.
+      </p>
+      <BracketChart
+        baseline={scenario}
+        selected={null}
+        brackets={plan.brackets}
+        stdDeduction={plan.standard_deduction}
+      />
+      <YearTable scenario={scenario} />
+    </div>
   );
 }
 

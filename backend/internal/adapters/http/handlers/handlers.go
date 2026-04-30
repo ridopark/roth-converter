@@ -61,6 +61,21 @@ func (h *Handlers) Brackets(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+func (h *Handlers) Optimize(w http.ResponseWriter, r *http.Request) {
+	var req domain.OptimizeRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid json"})
+		return
+	}
+	plan, err := h.svc.Optimizer.Solve(req)
+	if err != nil {
+		h.log.Error().Err(err).Msg("optimize failed")
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, plan)
+}
+
 func (h *Handlers) States(w http.ResponseWriter, r *http.Request) {
 	year := 2026
 	if y := r.URL.Query().Get("year"); y != "" {

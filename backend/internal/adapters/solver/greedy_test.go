@@ -105,14 +105,14 @@ func TestOrdinaryTax_MFJ2026(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			got := ordinaryTax(tc.taxable, domain.FilingMFJ, tt)
+			got := tt.OrdinaryTax(tc.taxable, domain.FilingMFJ)
 			assert.InDelta(t, tc.want, got, 0.01)
 		})
 	}
 }
 
 func TestComputeRMD(t *testing.T) {
-	divisors := map[int]float64{73: 26.5, 100: 6.4}
+	tt := domain.TaxTables{RMDDivisors: map[int]float64{73: 26.5, 100: 6.4}}
 	cases := []struct {
 		name    string
 		age     int
@@ -125,7 +125,7 @@ func TestComputeRMD(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			assert.InDelta(t, tc.want, computeRMD(tc.balance, tc.age, divisors), 0.01)
+			assert.InDelta(t, tc.want, tt.RMD(tc.balance, tc.age), 0.01)
 		})
 	}
 }

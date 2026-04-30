@@ -2,7 +2,6 @@ package solver
 
 import (
 	"fmt"
-	"math"
 
 	"github.com/rs/zerolog"
 
@@ -65,20 +64,20 @@ func (m *Matrix) Compute(req domain.MatrixRequest) (domain.MatrixResponse, error
 		cases = []float64{0, 25000, 50000, 100000}
 	}
 
-	stateRate := stateTaxRate(req.State, tables)
+	stateRate := tables.StateRate(req.State)
 
 	in := projectInputs{
-		startTrad:    startTrad,
-		startRoth:    startRoth,
-		otherIncome:  req.AnnualOtherIncome,
-		status:       req.FilingStatus,
-		includeRMD:   req.IncludeRMD,
-		rmdStartAge:  rmdStart,
-		startAge:     req.Age,
-		startYear:    year,
-		horizon:      horizon,
-		tables:       tables,
-		stateRate:    stateRate,
+		startTrad:   startTrad,
+		startRoth:   startRoth,
+		otherIncome: req.AnnualOtherIncome,
+		status:      req.FilingStatus,
+		includeRMD:  req.IncludeRMD,
+		rmdStartAge: rmdStart,
+		startAge:    req.Age,
+		startYear:   year,
+		horizon:     horizon,
+		tables:      tables,
+		stateRate:   stateRate,
 	}
 
 	scenarios := make([]domain.Scenario, 0, len(rates)*len(cases))
@@ -93,16 +92,6 @@ func (m *Matrix) Compute(req domain.MatrixRequest) (domain.MatrixResponse, error
 		StandardDeduction: tables.StandardDeduction[req.FilingStatus],
 		StateTaxRate:      stateRate,
 	}, nil
-}
-
-func stateTaxRate(code string, tables domain.TaxTables) float64 {
-	if code == "" {
-		return 0
-	}
-	if tables.NoTaxStates[code] {
-		return 0
-	}
-	return tables.StateTaxRates[code]
 }
 
 type projectInputs struct {
@@ -133,7 +122,7 @@ func projectScenario(rate, convCase float64, in projectInputs) domain.Scenario {
 
 		var rmd float64
 		if in.includeRMD && age >= in.rmdStartAge && trad > 0 {
-			rmd = computeRMD(trad, age, in.tables.RMDDivisors)
+			rmd = in.tables.RMD(trad, age)
 		}
 
 		conv := convCase
@@ -149,7 +138,7 @@ func projectScenario(rate, convCase float64, in projectInputs) domain.Scenario {
 		if afterStd < 0 {
 			afterStd = 0
 		}
-		fedTax := ordinaryTax(afterStd, in.status, in.tables)
+		fedTax := in.tables.OrdinaryTax(afterStd, in.status)
 		stateTax := afterStd * in.stateRate
 
 		startingTrad := trad
@@ -165,16 +154,16 @@ func projectScenario(rate, convCase float64, in projectInputs) domain.Scenario {
 			YearIndex:           i + 1,
 			CalendarYear:        calYear,
 			Age:                 age,
-			StartingTraditional: round(startingTrad),
-			StartingRoth:        round(startingRoth),
-			RMD:                 round(rmd),
-			Conversion:          round(conv),
-			TaxableIncome:       round(taxable),
-			FederalTax:          round(fedTax),
-			StateTax:            round(stateTax),
-			EndingTraditional:   round(trad),
-			EndingRoth:          round(roth),
-			EndingTotal:         round(trad + roth),
+			StartingTraditional: domain.Round(startingTrad),
+			StartingRoth:        domain.Round(startingRoth),
+			RMD:                 domain.Round(rmd),
+			Conversion:          domain.Round(conv),
+			TaxableIncome:       domain.Round(taxable),
+			FederalTax:          domain.Round(fedTax),
+			StateTax:            domain.Round(stateTax),
+			EndingTraditional:   domain.Round(trad),
+			EndingRoth:          domain.Round(roth),
+			EndingTotal:         domain.Round(trad + roth),
 		})
 
 		sumFedTax += fedTax
@@ -188,49 +177,13 @@ func projectScenario(rate, convCase float64, in projectInputs) domain.Scenario {
 		ConversionAmount: convCase,
 		Years:            years,
 		Summary: domain.ScenarioSummary{
-			TotalFederalTax:   round(sumFedTax),
-			TotalStateTax:     round(sumStateTax),
-			TotalConverted:    round(sumConv),
-			TotalRMD:          round(sumRMD),
-			EndingTotal:       round(trad + roth),
-			EndingTraditional: round(trad),
-			EndingRoth:        round(roth),
+			TotalFederalTax:   domain.Round(sumFedTax),
+			TotalStateTax:     domain.Round(sumStateTax),
+			TotalConverted:    domain.Round(sumConv),
+			TotalRMD:          domain.Round(sumRMD),
+			EndingTotal:       domain.Round(trad + roth),
+			EndingTraditional: domain.Round(trad),
+			EndingRoth:        domain.Round(roth),
 		},
 	}
-}
-
-func computeRMD(balance float64, age int, divisors map[int]float64) float64 {
-	if age > 100 {
-		age = 100
-	}
-	d, ok := divisors[age]
-	if !ok || d == 0 {
-		return 0
-	}
-	return balance / d
-}
-
-func ordinaryTax(taxable float64, status domain.FilingStatus, t domain.TaxTables) float64 {
-	if taxable <= 0 {
-		return 0
-	}
-	bs := t.OrdinaryBrackets[status]
-	var tax, prev float64
-	for _, b := range bs {
-		max := b.Max
-		if max == 0 {
-			max = math.Inf(1)
-		}
-		if taxable <= max {
-			tax += (taxable - prev) * b.Rate
-			return tax
-		}
-		tax += (max - prev) * b.Rate
-		prev = max
-	}
-	return tax
-}
-
-func round(v float64) float64 {
-	return math.Round(v*100) / 100
 }

@@ -4,6 +4,7 @@ import (
 	"github.com/rs/zerolog"
 
 	"github.com/ridopark/roth-converter/backend/internal/adapters/notifier"
+	"github.com/ridopark/roth-converter/backend/internal/adapters/optimizer"
 	"github.com/ridopark/roth-converter/backend/internal/adapters/solver"
 	"github.com/ridopark/roth-converter/backend/internal/adapters/taxtables"
 	"github.com/ridopark/roth-converter/backend/internal/config"
@@ -11,11 +12,12 @@ import (
 )
 
 type Service struct {
-	Cfg      config.Config
-	Log      zerolog.Logger
-	Tables   ports.TaxTablesRepo
-	Matrix   ports.MatrixCalculator
-	Notifier ports.Notifier
+	Cfg       config.Config
+	Log       zerolog.Logger
+	Tables    ports.TaxTablesRepo
+	Matrix    ports.MatrixCalculator
+	Optimizer ports.ConversionSolver
+	Notifier  ports.Notifier
 }
 
 func Wire(cfg config.Config, log zerolog.Logger) (*Service, func(), error) {
@@ -27,11 +29,12 @@ func Wire(cfg config.Config, log zerolog.Logger) (*Service, func(), error) {
 		note = notifier.Noop{}
 	}
 	svc := &Service{
-		Cfg:      cfg,
-		Log:      log,
-		Tables:   tables,
-		Matrix:   solver.New(tables, log),
-		Notifier: note,
+		Cfg:       cfg,
+		Log:       log,
+		Tables:    tables,
+		Matrix:    solver.New(tables, log),
+		Optimizer: optimizer.New(tables, log),
+		Notifier:  note,
 	}
 	cleanup := func() {}
 	return svc, cleanup, nil

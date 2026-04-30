@@ -17,6 +17,7 @@ func New(svc *app.Service, cfg config.Config, log zerolog.Logger) http.Handler {
 
 	h := handlers.New(svc, log)
 	mux.HandleFunc("POST /matrix", h.Matrix)
+	mux.HandleFunc("POST /optimize", h.Optimize)
 	mux.HandleFunc("POST /visit", h.Visit)
 	mux.HandleFunc("GET /brackets", h.Brackets)
 	mux.HandleFunc("GET /states", h.States)
