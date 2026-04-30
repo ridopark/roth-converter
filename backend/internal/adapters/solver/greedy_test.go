@@ -57,6 +57,28 @@ func tables2026() domain.TaxTables {
 			73: 26.5, 74: 25.5, 75: 24.6, 76: 23.7, 77: 22.9,
 			78: 22.0, 79: 21.1, 80: 20.2,
 		},
+		IRMAATiers: map[domain.FilingStatus][]domain.IRMAATier{
+			domain.FilingMFJ: {
+				{Label: "standard", MaxMAGI: 218000, AnnualSurchargePerPerson: 0},
+				{Label: "tier1", MaxMAGI: 274000, AnnualSurchargePerPerson: 1147},
+				{Label: "tier2", MaxMAGI: 342000, AnnualSurchargePerPerson: 2873},
+				{Label: "tier3", MaxMAGI: 410000, AnnualSurchargePerPerson: 4595},
+				{Label: "tier4", MaxMAGI: 750000, AnnualSurchargePerPerson: 6273},
+				{Label: "tier5", MaxMAGI: 0, AnnualSurchargePerPerson: 6935},
+			},
+			domain.FilingSingle: {
+				{Label: "standard", MaxMAGI: 109000, AnnualSurchargePerPerson: 0},
+				{Label: "tier1", MaxMAGI: 137000, AnnualSurchargePerPerson: 1147},
+				{Label: "tier2", MaxMAGI: 171000, AnnualSurchargePerPerson: 2873},
+				{Label: "tier3", MaxMAGI: 205000, AnnualSurchargePerPerson: 4595},
+				{Label: "tier4", MaxMAGI: 500000, AnnualSurchargePerPerson: 6273},
+				{Label: "tier5", MaxMAGI: 0, AnnualSurchargePerPerson: 6935},
+			},
+		},
+		SSThresholds: map[domain.FilingStatus]domain.SSThreshold{
+			domain.FilingMFJ:    {Lower: 32000, Upper: 44000},
+			domain.FilingSingle: {Lower: 25000, Upper: 34000},
+		},
 	}
 }
 
@@ -390,6 +412,125 @@ func TestMatrix_PopulatesBracketsAndStdDeduction(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, tt.OrdinaryBrackets[domain.FilingSingle], resp2.Brackets)
 	assert.InDelta(t, tt.StandardDeduction[domain.FilingSingle], resp2.StandardDeduction, 0.01)
+}
+
+func TestMatrix_70MFJ_SSTaxabilityKicksIn(t *testing.T) {
+	// Plan success criterion 1: 70 MFJ, $40k SS, $30k other -> taxable SS = $11k.
+	m := newMatrix(fakeRepo{tables: tables2026()})
+	resp, err := m.Compute(domain.MatrixRequest{
+		Profile: domain.Profile{
+			Age:               70,
+			BirthYear:         1956,
+			Total401k:         100_000,
+			TraditionalPct:    1.0,
+			FilingStatus:      domain.FilingMFJ,
+			AnnualOtherIncome: 30_000,
+			AnnualSSBenefit:   40_000,
+			HorizonYears:      1,
+			IncludeRMD:        false,
+		},
+		RatesOfReturn:   []float64{0},
+		ConversionCases: []float64{0},
+	})
+	require.NoError(t, err)
+	year := resp.Scenarios[0].Years[0]
+	assert.InDelta(t, 11100, year.TaxableSS, 0.01)
+	assert.InDelta(t, 11100, resp.Scenarios[0].Summary.TotalTaxableSS, 0.01)
+}
+
+func TestMatrix_Age66MFJ_IRMAALookbackTier2(t *testing.T) {
+	// Plan success criterion 2: age-66 MFJ with MAGI history in tier 2 ->
+	// 1 year of tier-2 surcharge appears in IRMAASurcharge.
+	m := newMatrix(fakeRepo{tables: tables2026()})
+	resp, err := m.Compute(domain.MatrixRequest{
+		Profile: domain.Profile{
+			Age:               66,
+			BirthYear:         1960,
+			Total401k:         500_000,
+			TraditionalPct:    1.0,
+			FilingStatus:      domain.FilingMFJ,
+			AnnualOtherIncome: 50_000,
+			HorizonYears:      1,
+			MAGITwoYearsAgo:   300_000, // tier 2 ($274k-$342k MFJ)
+			IncludeRMD:        false,
+		},
+		RatesOfReturn:   []float64{0},
+		ConversionCases: []float64{0},
+	})
+	require.NoError(t, err)
+	year := resp.Scenarios[0].Years[0]
+	// Tier 2 per-person = $2,873 -> household = $5,746 (assumes both spouses on Medicare).
+	assert.InDelta(t, 5746, year.IRMAASurcharge, 0.01)
+	assert.InDelta(t, 5746, resp.Scenarios[0].Summary.TotalIRMAASurcharge, 0.01)
+}
+
+func TestMatrix_IRMAALookbackBufferRolls(t *testing.T) {
+	// Year 0 uses MAGITwoYearsAgo, year 1 uses MAGIOneYearAgo, year 2 uses
+	// year-0 MAGI from this scenario. Verify that without seed history, the
+	// first two years carry no surcharge while year 2+ pick up the high MAGI
+	// from year 0's conversion.
+	m := newMatrix(fakeRepo{tables: tables2026()})
+	resp, err := m.Compute(domain.MatrixRequest{
+		Profile: domain.Profile{
+			Age:               66,
+			BirthYear:         1960,
+			Total401k:         1_500_000,
+			TraditionalPct:    1.0,
+			FilingStatus:      domain.FilingMFJ,
+			AnnualOtherIncome: 50_000,
+			HorizonYears:      4,
+			IncludeRMD:        false,
+		},
+		RatesOfReturn:   []float64{0},
+		ConversionCases: []float64{200_000}, // pushes MAGI to ~$250k -> tier 1
+	})
+	require.NoError(t, err)
+	years := resp.Scenarios[0].Years
+	assert.InDelta(t, 0, years[0].IRMAASurcharge, 0.01)
+	assert.InDelta(t, 0, years[1].IRMAASurcharge, 0.01)
+	assert.Greater(t, years[2].IRMAASurcharge, 0.0)
+	assert.Greater(t, years[3].IRMAASurcharge, 0.0)
+}
+
+func TestMatrix_PopulatesIRMAATiers(t *testing.T) {
+	m := newMatrix(fakeRepo{tables: tables2026()})
+	resp, err := m.Compute(domain.MatrixRequest{
+		Profile: domain.Profile{
+			Age:            60,
+			BirthYear:      1966,
+			Total401k:      100_000,
+			TraditionalPct: 1.0,
+			FilingStatus:   domain.FilingMFJ,
+			HorizonYears:   1,
+		},
+		RatesOfReturn:   []float64{0},
+		ConversionCases: []float64{0},
+	})
+	require.NoError(t, err)
+	require.NotEmpty(t, resp.IRMAATiers)
+	assert.Equal(t, "standard", resp.IRMAATiers[0].Label)
+}
+
+func TestMatrix_BackwardCompatNoSSorIRMAA(t *testing.T) {
+	// Existing v1 flow without SS / MAGI history must produce identical math.
+	m := newMatrix(fakeRepo{tables: tables2026()})
+	resp, err := m.Compute(domain.MatrixRequest{
+		Profile: domain.Profile{
+			Age:               60,
+			BirthYear:         1966,
+			Total401k:         100_000,
+			TraditionalPct:    1.0,
+			FilingStatus:      domain.FilingMFJ,
+			AnnualOtherIncome: 50_000,
+			HorizonYears:      10,
+		},
+		RatesOfReturn:   []float64{0},
+		ConversionCases: []float64{0},
+	})
+	require.NoError(t, err)
+	assert.InDelta(t, 17_800, resp.Scenarios[0].Summary.TotalFederalTax, 0.01)
+	assert.InDelta(t, 0, resp.Scenarios[0].Summary.TotalIRMAASurcharge, 0.01)
+	assert.InDelta(t, 0, resp.Scenarios[0].Summary.TotalTaxableSS, 0.01)
 }
 
 func TestMatrix_TaxTableLoadFailure(t *testing.T) {

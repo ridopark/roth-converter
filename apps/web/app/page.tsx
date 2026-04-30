@@ -27,6 +27,7 @@ import {
   type StateOption,
   type OptimizePlan,
   type Bracket,
+  type IRMAATier,
   type MatrixResponse,
   type FilingStatus,
   type Scenario,
@@ -40,6 +41,7 @@ interface FormState {
   roth_balance: number;
   filing_status: FilingStatus;
   annual_other_income: number;
+  annual_ss_benefit: number;
   horizon_years: number;
   rates_str: string;
   conversion_cases_str: string;
@@ -48,6 +50,7 @@ interface FormState {
   state: string;
   rate_of_return: number;
   target_bracket_rate: number;
+  respect_irmaa: boolean;
 }
 
 const DEFAULT_FORM: FormState = {
@@ -56,6 +59,7 @@ const DEFAULT_FORM: FormState = {
   roth_balance: 300_000,
   filing_status: "mfj",
   annual_other_income: 50_000,
+  annual_ss_benefit: 0,
   horizon_years: 10,
   rates_str: "5, 7, 9, 11",
   conversion_cases_str: "0, 25000, 50000, 100000, 200000",
@@ -64,6 +68,7 @@ const DEFAULT_FORM: FormState = {
   state: "",
   rate_of_return: 0.07,
   target_bracket_rate: 0.22,
+  respect_irmaa: true,
 };
 
 interface DialogState {
@@ -184,6 +189,7 @@ export default function Home() {
           roth_pct: rothPct,
           filing_status: form.filing_status,
           annual_other_income: form.annual_other_income,
+          annual_ss_benefit: form.annual_ss_benefit,
           horizon_years: form.horizon_years,
           rates_of_return: rates,
           conversion_cases: cases,
@@ -203,12 +209,14 @@ export default function Home() {
           roth_pct: rothPct,
           filing_status: form.filing_status,
           annual_other_income: form.annual_other_income,
+          annual_ss_benefit: form.annual_ss_benefit,
           horizon_years: form.horizon_years,
           rate_of_return: form.rate_of_return,
           target_bracket_rate: form.target_bracket_rate,
           include_rmd: form.include_rmd,
           tax_year: form.tax_year,
           state: form.state,
+          respect_irmaa: form.respect_irmaa,
         });
         setPlan(p);
         setResp(null);
@@ -319,6 +327,26 @@ export default function Home() {
             <NumberInput
               value={form.annual_other_income}
               onChange={(v) => setForm({ ...form, annual_other_income: v })}
+            />
+          </Field>
+          <Field
+            label="Annual Social Security benefit ($)"
+            hint={
+              <>
+                Total household Social Security benefit per year (combined for
+                MFJ). Held flat across the horizon. Up to 85% can be taxed
+                under IRC section 86 once provisional income (other income +
+                conversion + RMD + half of SS) crosses the IRS thresholds
+                ($32k / $44k MFJ; $25k / $34k Single).
+                <span className="mt-1 block">
+                  Set to 0 if you are not yet collecting SS.
+                </span>
+              </>
+            }
+          >
+            <NumberInput
+              value={form.annual_ss_benefit}
+              onChange={(v) => setForm({ ...form, annual_ss_benefit: v })}
             />
           </Field>
           <Field
@@ -530,6 +558,23 @@ export default function Home() {
           )}
           {mode === "plan" && (
             <>
+              <label className="flex items-start gap-2 text-sm mb-3">
+                <input
+                  type="checkbox"
+                  className="mt-0.5"
+                  checked={form.respect_irmaa}
+                  onChange={(e) => setForm({ ...form, respect_irmaa: e.target.checked })}
+                />
+                <span>
+                  <span>Respect IRMAA tier (cap at $218k MFJ / $109k Single)</span>
+                  <Hint>
+                    When you are 63+ each conversion year, hold MAGI under the IRMAA
+                    standard tier so the 2-year-lookback Medicare surcharge stays at
+                    $0. Crossing tier 1 costs roughly $1,147/yr per spouse. Disable
+                    to fill the federal bracket regardless of IRMAA.
+                  </Hint>
+                </span>
+              </label>
               <Field
                 label="Rate of return (%)"
                 hint={
@@ -616,6 +661,7 @@ export default function Home() {
 function PlanView({ plan }: { plan: OptimizePlan }) {
   const scenario = plan.plan;
   const bracketLabel = `${(plan.target_bracket_rate * 100).toFixed(0)}%`;
+  const irmaaApplied = plan.respect_irmaa && (plan.irmaa_tiers ?? []).length > 0;
   return (
     <div>
       <h2 className="text-xl font-semibold mb-3">
@@ -624,13 +670,27 @@ function PlanView({ plan }: { plan: OptimizePlan }) {
       <p className="text-xs text-gray-500 dark:text-gray-400 mb-3">
         Single deterministic plan at {fmtPct(scenario.rate_of_return)} rate of return.
         Each year converts as much as fits below the {bracketLabel} bracket top (post-deduction, after any RMD),
-        capped by what remains in Traditional. Total converted: <strong>{fmtMoney(scenario.summary.total_converted)}</strong>.
+        capped by what remains in Traditional.
+        {irmaaApplied && (
+          <>
+            {" "}With <strong>respect IRMAA</strong> on, conversions at age 63+ are
+            additionally capped to keep MAGI below the standard tier (zero
+            Medicare surcharge two years later).
+          </>
+        )}
+        {" "}Total converted: <strong>{fmtMoney(scenario.summary.total_converted)}</strong>.
+        {(scenario.summary.total_irmaa_surcharge ?? 0) > 0 && (
+          <>
+            {" "}Total IRMAA surcharge: <strong>{fmtMoney(scenario.summary.total_irmaa_surcharge ?? 0)}</strong>.
+          </>
+        )}
       </p>
       <BracketChart
         baseline={scenario}
         selected={null}
         brackets={plan.brackets}
         stdDeduction={plan.standard_deduction}
+        irmaaTiers={plan.irmaa_tiers}
       />
       <YearTable scenario={scenario} />
     </div>
@@ -731,6 +791,12 @@ function Results({
   }
 
   const hasStateTax = resp.state_tax_rate > 0;
+  const hasIRMAA = resp.scenarios.some(
+    (s) => (s.summary.total_irmaa_surcharge ?? 0) > 0,
+  );
+  const hasTaxableSS = resp.scenarios.some(
+    (s) => (s.summary.total_taxable_ss ?? 0) > 0,
+  );
 
   return (
     <div>
@@ -788,13 +854,25 @@ function Results({
                         }`}
                       >
                         <div className="text-xs text-gray-500 dark:text-gray-400">
-                          {hasStateTax ? "fed tax" : "tax"}
+                          {hasStateTax || hasIRMAA ? "fed tax" : "tax"}
                         </div>
                         <div className="font-semibold">{fmtMoney(s.summary.total_federal_tax)}</div>
                         {hasStateTax && (
                           <>
                             <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">state tax</div>
                             <div className="font-semibold">{fmtMoney(s.summary.total_state_tax)}</div>
+                          </>
+                        )}
+                        {hasIRMAA && (
+                          <>
+                            <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">IRMAA</div>
+                            <div className="font-semibold">{fmtMoney(s.summary.total_irmaa_surcharge ?? 0)}</div>
+                          </>
+                        )}
+                        {hasTaxableSS && (
+                          <>
+                            <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">taxable SS</div>
+                            <div className="font-semibold">{fmtMoney(s.summary.total_taxable_ss ?? 0)}</div>
                           </>
                         )}
                         <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">end total</div>
@@ -824,6 +902,7 @@ function Results({
             baseline={baseline}
             brackets={resp.brackets}
             stdDeduction={resp.standard_deduction}
+            irmaaTiers={resp.irmaa_tiers}
             onFocus={() => onFocus(d.rate, d.conversion)}
             onMove={(x, y) => onMove(d.rate, d.conversion, x, y)}
             onClose={() => onClose(d.rate, d.conversion)}
@@ -964,6 +1043,7 @@ function DrillDialog({
   baseline,
   brackets,
   stdDeduction,
+  irmaaTiers,
   onFocus,
   onMove,
   onClose,
@@ -973,6 +1053,7 @@ function DrillDialog({
   baseline: Scenario | null;
   brackets: Bracket[];
   stdDeduction: number;
+  irmaaTiers?: IRMAATier[];
   onFocus: () => void;
   onMove: (x: number, y: number) => void;
   onClose: () => void;
@@ -1031,6 +1112,7 @@ function DrillDialog({
             selected={scenario}
             brackets={brackets}
             stdDeduction={stdDeduction}
+            irmaaTiers={irmaaTiers}
           />
         )}
         <YearTable scenario={scenario} />
@@ -1041,8 +1123,11 @@ function DrillDialog({
 
 interface ChartRow {
   year: number;
+  age: number;
   baseline: number;
   selected: number | null;
+  baseline_irmaa_tier?: string;
+  selected_irmaa_tier?: string;
 }
 
 function BracketChart({
@@ -1050,24 +1135,39 @@ function BracketChart({
   selected,
   brackets,
   stdDeduction,
+  irmaaTiers,
 }: {
   baseline: Scenario;
   selected: Scenario | null;
   brackets: Bracket[];
   stdDeduction: number;
+  irmaaTiers?: IRMAATier[];
 }) {
   const data: ChartRow[] = useMemo(() => {
     return baseline.years.map((y, i) => {
       const sy = selected?.years[i];
       return {
         year: y.calendar_year,
+        age: y.age,
         baseline: Math.max(0, y.taxable_income - stdDeduction),
         selected: sy ? Math.max(0, sy.taxable_income - stdDeduction) : null,
+        baseline_irmaa_tier: y.irmaa_tier_label,
+        selected_irmaa_tier: sy?.irmaa_tier_label,
       };
     });
   }, [baseline, selected, stdDeduction]);
 
   const refLines = useMemo(() => brackets.filter((b) => b.max > 0), [brackets]);
+  // IRMAA tier tops shifted to post-std-deduction so they share the chart's
+  // Y-axis with the federal bracket lines (MAGI ~= taxable_income pre-deduction
+  // for our model; subtracting stdDeduction puts them on the same scale).
+  const irmaaRefLines = useMemo(
+    () =>
+      (irmaaTiers ?? [])
+        .filter((t) => t.max_magi > 0)
+        .map((t) => ({ ...t, plotY: Math.max(0, t.max_magi - stdDeduction) })),
+    [irmaaTiers, stdDeduction],
+  );
 
   const yMax = useMemo(() => {
     let v = 0;
@@ -1078,13 +1178,16 @@ function BracketChart({
     for (const b of refLines) {
       if (b.max > v) v = b.max;
     }
+    for (const t of irmaaRefLines) {
+      if (t.plotY > v) v = t.plotY;
+    }
     return v * 1.1;
-  }, [data, refLines]);
+  }, [data, refLines, irmaaRefLines]);
 
   return (
     <div className="border border-amber-200 dark:border-amber-800 rounded p-3 mb-6 bg-white dark:bg-gray-900">
       <ResponsiveContainer width="100%" height={320}>
-        <LineChart data={data} margin={{ top: 12, right: 32, left: 16, bottom: 8 }}>
+        <LineChart data={data} margin={{ top: 12, right: 56, left: 16, bottom: 8 }}>
           <CartesianGrid strokeDasharray="3 3" stroke="#eee" />
           <XAxis dataKey="year" tick={{ fontSize: 12 }} />
           <YAxis
@@ -1093,16 +1196,12 @@ function BracketChart({
             domain={[0, yMax]}
           />
           <Tooltip
-            formatter={(value, name) => {
-              if (value === null || value === undefined) return ["-", name as string];
-              return [fmtMoney(Number(value)), name as string];
-            }}
-            labelFormatter={(label) => `Year ${String(label)}`}
+            content={(props) => <BracketTooltip {...(props as TooltipPayload)} selected={selected} />}
           />
           <Legend wrapperStyle={{ fontSize: 12 }} />
           {refLines.map((b) => (
             <ReferenceLine
-              key={b.rate}
+              key={`fed-${b.rate}`}
               y={b.max}
               stroke="#9ca3af"
               strokeDasharray="4 4"
@@ -1111,6 +1210,20 @@ function BracketChart({
                 position: "right",
                 fontSize: 11,
                 fill: "#6b7280",
+              }}
+            />
+          ))}
+          {irmaaRefLines.map((t) => (
+            <ReferenceLine
+              key={`irmaa-${t.label}`}
+              y={t.plotY}
+              stroke="#a855f7"
+              strokeDasharray="2 4"
+              label={{
+                value: `IRMAA ${t.label}`,
+                position: "left",
+                fontSize: 10,
+                fill: "#a855f7",
               }}
             />
           ))}
@@ -1138,13 +1251,54 @@ function BracketChart({
       </ResponsiveContainer>
       <p className="text-[11px] text-gray-500 dark:text-gray-400 mt-2">
         Y-axis: post-deduction taxable income (taxable_income minus standard deduction, floored at 0).
-        Dashed lines show federal bracket tops for the chosen filing status.
+        Gray dashed lines show federal bracket tops; purple dashed lines show IRMAA tier tops
+        (MAGI threshold minus standard deduction, since MAGI ~= taxable income pre-deduction
+        in this calculator). Tooltip shows the IRMAA tier the user is in for years 65+.
       </p>
     </div>
   );
 }
 
+interface TooltipPayload {
+  active?: boolean;
+  label?: string | number;
+  payload?: ReadonlyArray<{ name?: string; value?: number; color?: string; dataKey?: string | number; payload?: ChartRow }>;
+}
+
+function BracketTooltip({
+  active,
+  label,
+  payload,
+  selected,
+}: TooltipPayload & { selected: Scenario | null }) {
+  if (!active || !payload || payload.length === 0) return null;
+  const row = payload[0].payload;
+  if (!row) return null;
+  return (
+    <div className="rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900 p-2 text-xs shadow">
+      <div className="font-semibold mb-1">Year {String(label)} (age {row.age})</div>
+      {payload.map((p, i) => (
+        <div key={`${p.dataKey ?? i}`} style={{ color: p.color }}>
+          {p.name ?? p.dataKey}: {p.value === null || p.value === undefined ? "-" : fmtMoney(Number(p.value))}
+        </div>
+      ))}
+      {row.baseline_irmaa_tier && (
+        <div className="mt-1 text-[#a855f7]">
+          IRMAA (baseline): {row.baseline_irmaa_tier}
+        </div>
+      )}
+      {selected && row.selected_irmaa_tier && (
+        <div className="text-[#a855f7]">
+          IRMAA (selected): {row.selected_irmaa_tier}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function YearTable({ scenario }: { scenario: Scenario }) {
+  const hasTaxableSS = scenario.years.some((y) => (y.taxable_ss ?? 0) > 0);
+  const hasIRMAA = scenario.years.some((y) => (y.irmaa_surcharge ?? 0) > 0);
   return (
     <div>
       <p className="text-sm text-gray-700 dark:text-gray-200 mb-2">
@@ -1153,6 +1307,12 @@ function YearTable({ scenario }: { scenario: Scenario }) {
           <>
             {" "}
             + state tax <strong>{fmtMoney(scenario.summary.total_state_tax)}</strong>
+          </>
+        )}
+        {(scenario.summary.total_irmaa_surcharge ?? 0) > 0 && (
+          <>
+            {" "}
+            + IRMAA <strong>{fmtMoney(scenario.summary.total_irmaa_surcharge ?? 0)}</strong>
           </>
         )}
         , end balance <strong>{fmtMoney(scenario.summary.ending_total)}</strong>
@@ -1165,9 +1325,11 @@ function YearTable({ scenario }: { scenario: Scenario }) {
               <th className="p-2 text-left font-semibold">Age</th>
               <th className="p-2 text-left font-semibold">RMD</th>
               <th className="p-2 text-left font-semibold">Conversion</th>
+              {hasTaxableSS && <th className="p-2 text-left font-semibold">Taxable SS</th>}
               <th className="p-2 text-left font-semibold">Taxable</th>
               <th className="p-2 text-left font-semibold">Federal tax</th>
               <th className="p-2 text-left font-semibold">State tax</th>
+              {hasIRMAA && <th className="p-2 text-left font-semibold">IRMAA</th>}
               <th className="p-2 text-left font-semibold">End traditional</th>
               <th className="p-2 text-left font-semibold">End Roth</th>
               <th className="p-2 text-left font-semibold">End total</th>
@@ -1180,9 +1342,15 @@ function YearTable({ scenario }: { scenario: Scenario }) {
                 <td className="p-2 border-b border-amber-100 dark:border-amber-800/40">{y.age}</td>
                 <td className="p-2 border-b border-amber-100 dark:border-amber-800/40">{y.rmd > 0 ? fmtMoney(y.rmd) : "-"}</td>
                 <td className="p-2 border-b border-amber-100 dark:border-amber-800/40">{y.conversion > 0 ? fmtMoney(y.conversion) : "-"}</td>
+                {hasTaxableSS && (
+                  <td className="p-2 border-b border-amber-100 dark:border-amber-800/40">{(y.taxable_ss ?? 0) > 0 ? fmtMoney(y.taxable_ss ?? 0) : "-"}</td>
+                )}
                 <td className="p-2 border-b border-amber-100 dark:border-amber-800/40">{fmtMoney(y.taxable_income)}</td>
                 <td className="p-2 border-b border-amber-100 dark:border-amber-800/40">{fmtMoney(y.federal_tax)}</td>
                 <td className="p-2 border-b border-amber-100 dark:border-amber-800/40">{y.state_tax > 0 ? fmtMoney(y.state_tax) : "-"}</td>
+                {hasIRMAA && (
+                  <td className="p-2 border-b border-amber-100 dark:border-amber-800/40 text-purple-600 dark:text-purple-400">{(y.irmaa_surcharge ?? 0) > 0 ? fmtMoney(y.irmaa_surcharge ?? 0) : "-"}</td>
+                )}
                 <td className="p-2 border-b border-amber-100 dark:border-amber-800/40">{fmtMoney(y.ending_traditional)}</td>
                 <td className="p-2 border-b border-amber-100 dark:border-amber-800/40">{fmtMoney(y.ending_roth)}</td>
                 <td className="p-2 border-b border-amber-100 dark:border-amber-800/40 font-semibold">{fmtMoney(y.ending_total)}</td>
