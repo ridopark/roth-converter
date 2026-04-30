@@ -469,6 +469,9 @@ function Results({
       <p className="text-xs text-gray-500 mb-2">
         Click cells to open draggable drill-in dialogs. Click again to close. Open multiple to compare side-by-side.
       </p>
+
+      <OverviewCharts resp={resp} rates={rates} cases={cases} find={find} />
+
       <div className="overflow-x-auto mb-6">
         <table className="min-w-full text-sm border">
           <thead className="bg-amber-500 text-white">
@@ -538,6 +541,124 @@ function Results({
           />
         );
       })}
+    </div>
+  );
+}
+
+const SERIES_COLORS = ["#6b7280", "#f59e0b", "#10b981", "#0ea5e9", "#8b5cf6", "#ec4899", "#14b8a6"];
+
+function OverviewCharts({
+  resp,
+  rates,
+  cases,
+  find,
+}: {
+  resp: MatrixResponse;
+  rates: number[];
+  cases: number[];
+  find: (r: number, c: number) => Scenario | undefined;
+}) {
+  const [chartRate, setChartRate] = useState<number>(rates[0]);
+
+  useEffect(() => {
+    if (!rates.includes(chartRate)) setChartRate(rates[0]);
+  }, [rates, chartRate]);
+
+  const seriesKeys = useMemo(() => cases.map((c) => `${fmtMoney(c)}/yr`), [cases]);
+
+  const data = useMemo(() => {
+    const baselineScenario = find(chartRate, cases[0]);
+    if (!baselineScenario) return [];
+    return baselineScenario.years.map((_, i) => {
+      const cumByCase: Record<string, number> = {};
+      const tradByCase: Record<string, number> = {};
+      const rothByCase: Record<string, number> = {};
+      cases.forEach((c, idx) => {
+        const s = find(chartRate, c);
+        if (!s) return;
+        const key = seriesKeys[idx];
+        let cumTax = 0;
+        for (let j = 0; j <= i; j++) cumTax += s.years[j].federal_tax;
+        cumByCase[key] = cumTax;
+        tradByCase[key] = s.years[i].ending_traditional;
+        rothByCase[key] = s.years[i].ending_roth;
+      });
+      return {
+        year: baselineScenario.years[i].calendar_year,
+        cum: cumByCase,
+        trad: tradByCase,
+        roth: rothByCase,
+      };
+    });
+  }, [chartRate, cases, find, seriesKeys, resp]);
+
+  const cumData = data.map((d) => ({ year: d.year, ...d.cum }));
+  const tradData = data.map((d) => ({ year: d.year, ...d.trad }));
+  const rothData = data.map((d) => ({ year: d.year, ...d.roth }));
+
+  return (
+    <div className="mb-6">
+      <div className="flex items-center gap-2 mb-2 flex-wrap">
+        <span className="text-xs text-gray-600">Compare strategies at rate:</span>
+        {rates.map((r) => (
+          <button
+            key={r}
+            type="button"
+            onClick={() => setChartRate(r)}
+            className={`px-2 py-0.5 text-xs rounded border ${
+              chartRate === r
+                ? "bg-amber-500 text-white border-amber-600"
+                : "bg-white text-gray-700 border-gray-300 hover:bg-amber-50"
+            }`}
+          >
+            {fmtPct(r)}
+          </button>
+        ))}
+      </div>
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+        <SeriesChart title="Cumulative federal tax paid" data={cumData} seriesKeys={seriesKeys} />
+        <SeriesChart title="Traditional 401(k) balance" data={tradData} seriesKeys={seriesKeys} />
+        <SeriesChart title="Roth 401(k) balance" data={rothData} seriesKeys={seriesKeys} />
+      </div>
+    </div>
+  );
+}
+
+function SeriesChart({
+  title,
+  data,
+  seriesKeys,
+}: {
+  title: string;
+  data: Array<Record<string, number>>;
+  seriesKeys: string[];
+}) {
+  return (
+    <div className="border rounded p-2 bg-white">
+      <h3 className="text-xs font-semibold text-gray-700 mb-1">{title}</h3>
+      <ResponsiveContainer width="100%" height={220}>
+        <LineChart data={data} margin={{ top: 8, right: 12, left: 4, bottom: 4 }}>
+          <CartesianGrid strokeDasharray="3 3" stroke="#eee" />
+          <XAxis dataKey="year" tick={{ fontSize: 11 }} />
+          <YAxis tick={{ fontSize: 11 }} tickFormatter={(v: number) => fmtMoney(v)} />
+          <Tooltip
+            formatter={(value, name) => [fmtMoney(Number(value)), name as string]}
+            labelFormatter={(label) => `Year ${String(label)}`}
+          />
+          <Legend wrapperStyle={{ fontSize: 11 }} />
+          {seriesKeys.map((k, i) => (
+            <Line
+              key={k}
+              type="monotone"
+              dataKey={k}
+              stroke={SERIES_COLORS[i % SERIES_COLORS.length]}
+              strokeWidth={2}
+              dot={false}
+              isAnimationActive={false}
+            />
+          ))}
+        </LineChart>
+      </ResponsiveContainer>
     </div>
   );
 }
