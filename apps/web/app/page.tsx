@@ -471,11 +471,13 @@ function Results({
       </p>
       <div className="overflow-x-auto mb-6">
         <table className="min-w-full text-sm border">
-          <thead className="bg-gray-100">
+          <thead className="bg-amber-500 text-white">
             <tr>
-              <th className="p-2 border text-left">Annual conversion</th>
+              <th className="p-2 border border-amber-600 text-left font-semibold">Annual conversion</th>
               {rates.map((r) => (
-                <th key={r} className="p-2 border text-left">Rate {fmtPct(r)}</th>
+                <th key={r} className="p-2 border border-amber-600 text-left font-semibold">
+                  Rate {fmtPct(r)}
+                </th>
               ))}
             </tr>
           </thead>
@@ -735,7 +737,7 @@ function YearTable({ scenario }: { scenario: Scenario }) {
       </p>
       <div className="overflow-x-auto">
         <table className="min-w-full text-sm border">
-          <thead className="bg-gray-50">
+          <thead className="bg-amber-100 text-amber-900">
             <tr>
               <th className="p-2 border-b text-left">Year</th>
               <th className="p-2 border-b text-left">Age</th>
