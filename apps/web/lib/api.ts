@@ -112,21 +112,10 @@ export function buildStateOptions(s: StatesResponse): StateOption[] {
 }
 
 
-export interface OptimizeRequest {
-  age: number;
-  birth_year: number;
-  total_401k: number;
-  traditional_pct: number;
-  roth_pct: number;
-  filing_status: FilingStatus;
-  annual_other_income: number;
-  horizon_years: number;
+export type OptimizeRequest = Omit<MatrixRequest, "rates_of_return" | "conversion_cases"> & {
   rate_of_return: number;
   target_bracket_rate: number;
-  include_rmd: boolean;
-  tax_year: number;
-  state: string;
-}
+};
 
 export interface OptimizePlan {
   plan: Scenario;

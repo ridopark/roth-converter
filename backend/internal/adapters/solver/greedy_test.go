@@ -133,16 +133,18 @@ func TestComputeRMD(t *testing.T) {
 func TestMatrix_CrossProduct(t *testing.T) {
 	m := newMatrix(fakeRepo{tables: tables2026()})
 	resp, err := m.Compute(domain.MatrixRequest{
-		Age:             60,
-		BirthYear:       1966,
-		Total401k:       1_000_000,
-		TraditionalPct:  0.7,
-		RothPct:         0.3,
-		FilingStatus:    domain.FilingMFJ,
-		HorizonYears:    5,
+		Profile: domain.Profile{
+			Age:            60,
+			BirthYear:      1966,
+			Total401k:      1_000_000,
+			TraditionalPct: 0.7,
+			RothPct:        0.3,
+			FilingStatus:   domain.FilingMFJ,
+			HorizonYears:   5,
+			TaxYear:        2026,
+		},
 		RatesOfReturn:   []float64{0.05, 0.10, 0.15},
 		ConversionCases: []float64{0, 25_000, 50_000, 100_000},
-		TaxYear:         2026,
 	})
 	require.NoError(t, err)
 	require.Len(t, resp.Scenarios, 12)
@@ -154,10 +156,12 @@ func TestMatrix_CrossProduct(t *testing.T) {
 func TestMatrix_DefaultsApplied(t *testing.T) {
 	m := newMatrix(fakeRepo{tables: tables2026()})
 	resp, err := m.Compute(domain.MatrixRequest{
-		Age:          60,
-		BirthYear:    1966,
-		Total401k:    500_000,
-		FilingStatus: domain.FilingMFJ,
+		Profile: domain.Profile{
+			Age:          60,
+			BirthYear:    1966,
+			Total401k:    500_000,
+			FilingStatus: domain.FilingMFJ,
+		},
 	})
 	require.NoError(t, err)
 	// 4 default rates x 4 default cases = 16 scenarios, horizon 10.
@@ -172,13 +176,15 @@ func TestMatrix_DefaultsApplied(t *testing.T) {
 func TestMatrix_PctIn0To100Form(t *testing.T) {
 	m := newMatrix(fakeRepo{tables: tables2026()})
 	resp, err := m.Compute(domain.MatrixRequest{
-		Age:             60,
-		BirthYear:       1966,
-		Total401k:       100_000,
-		TraditionalPct:  80,
-		RothPct:         20,
-		FilingStatus:    domain.FilingMFJ,
-		HorizonYears:    1,
+		Profile: domain.Profile{
+			Age:            60,
+			BirthYear:      1966,
+			Total401k:      100_000,
+			TraditionalPct: 80,
+			RothPct:        20,
+			FilingStatus:   domain.FilingMFJ,
+			HorizonYears:   1,
+		},
 		RatesOfReturn:   []float64{0},
 		ConversionCases: []float64{0},
 	})
@@ -196,13 +202,15 @@ func TestMatrix_TotalConservedWhenNoRMD(t *testing.T) {
 	const r = 0.10
 	const horizon = 10
 	resp, err := m.Compute(domain.MatrixRequest{
-		Age:             60,
-		BirthYear:       1966,
-		Total401k:       total,
-		TraditionalPct:  0.7,
-		RothPct:         0.3,
-		FilingStatus:    domain.FilingMFJ,
-		HorizonYears:    horizon,
+		Profile: domain.Profile{
+			Age:            60,
+			BirthYear:      1966,
+			Total401k:      total,
+			TraditionalPct: 0.7,
+			RothPct:        0.3,
+			FilingStatus:   domain.FilingMFJ,
+			HorizonYears:   horizon,
+		},
 		RatesOfReturn:   []float64{r},
 		ConversionCases: []float64{0, 50_000, 200_000},
 	})
@@ -217,12 +225,14 @@ func TestMatrix_TotalConservedWhenNoRMD(t *testing.T) {
 func TestMatrix_ConversionCappedByTradBalance(t *testing.T) {
 	m := newMatrix(fakeRepo{tables: tables2026()})
 	resp, err := m.Compute(domain.MatrixRequest{
-		Age:             60,
-		BirthYear:       1966,
-		Total401k:       100_000,
-		TraditionalPct:  1.0,
-		FilingStatus:    domain.FilingMFJ,
-		HorizonYears:    3,
+		Profile: domain.Profile{
+			Age:            60,
+			BirthYear:      1966,
+			Total401k:      100_000,
+			TraditionalPct: 1.0,
+			FilingStatus:   domain.FilingMFJ,
+			HorizonYears:   3,
+		},
 		RatesOfReturn:   []float64{0},
 		ConversionCases: []float64{1_000_000},
 	})
@@ -241,16 +251,18 @@ func TestMatrix_RMDOnlyAtOrAfterStartAge(t *testing.T) {
 	// Year 3 (age 73): RMD>0 from the divisor table.
 	m := newMatrix(fakeRepo{tables: tables2026()})
 	resp, err := m.Compute(domain.MatrixRequest{
-		Age:             70,
-		BirthYear:       1956,
-		Total401k:       500_000,
-		TraditionalPct:  1.0,
-		FilingStatus:    domain.FilingMFJ,
-		HorizonYears:    5,
+		Profile: domain.Profile{
+			Age:            70,
+			BirthYear:      1956,
+			Total401k:      500_000,
+			TraditionalPct: 1.0,
+			FilingStatus:   domain.FilingMFJ,
+			HorizonYears:   5,
+			IncludeRMD:     true,
+			TaxYear:        2026,
+		},
 		RatesOfReturn:   []float64{0},
 		ConversionCases: []float64{0},
-		IncludeRMD:      true,
-		TaxYear:         2026,
 	})
 	require.NoError(t, err)
 	years := resp.Scenarios[0].Years
@@ -266,15 +278,17 @@ func TestMatrix_FederalTaxIsBracketsOnly(t *testing.T) {
 	// taxable=$17,800 stays in 10% bracket -> $1,780/yr * 10 yrs = $17,800.
 	m := newMatrix(fakeRepo{tables: tables2026()})
 	resp, err := m.Compute(domain.MatrixRequest{
-		Age:               60,
-		BirthYear:         1966,
-		Total401k:         100_000,
-		TraditionalPct:    1.0,
-		FilingStatus:      domain.FilingMFJ,
-		AnnualOtherIncome: 50_000,
-		HorizonYears:      10,
-		RatesOfReturn:     []float64{0},
-		ConversionCases:   []float64{0},
+		Profile: domain.Profile{
+			Age:               60,
+			BirthYear:         1966,
+			Total401k:         100_000,
+			TraditionalPct:    1.0,
+			FilingStatus:      domain.FilingMFJ,
+			AnnualOtherIncome: 50_000,
+			HorizonYears:      10,
+		},
+		RatesOfReturn:   []float64{0},
+		ConversionCases: []float64{0},
 	})
 	require.NoError(t, err)
 	assert.InDelta(t, 17_800, resp.Scenarios[0].Summary.TotalFederalTax, 0.01)
@@ -286,9 +300,9 @@ func TestMatrix_InvalidInputs(t *testing.T) {
 		name string
 		req  domain.MatrixRequest
 	}{
-		{"bad filing status", domain.MatrixRequest{Age: 60, FilingStatus: "garbage"}},
-		{"negative balance", domain.MatrixRequest{Age: 60, FilingStatus: domain.FilingMFJ, Total401k: -1}},
-		{"zero age", domain.MatrixRequest{Age: 0, FilingStatus: domain.FilingMFJ}},
+		{"bad filing status", domain.MatrixRequest{Profile: domain.Profile{Age: 60, FilingStatus: "garbage"}}},
+		{"negative balance", domain.MatrixRequest{Profile: domain.Profile{Age: 60, FilingStatus: domain.FilingMFJ, Total401k: -1}}},
+		{"zero age", domain.MatrixRequest{Profile: domain.Profile{Age: 0, FilingStatus: domain.FilingMFJ}}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -320,16 +334,18 @@ func TestMatrix_StateTaxApplied(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			resp, err := m.Compute(domain.MatrixRequest{
-				Age:               60,
-				BirthYear:         1966,
-				Total401k:         100_000,
-				TraditionalPct:    1.0,
-				FilingStatus:      domain.FilingMFJ,
-				AnnualOtherIncome: 50_000,
-				HorizonYears:      1,
-				RatesOfReturn:     []float64{0},
-				ConversionCases:   []float64{0},
-				State:             tc.state,
+				Profile: domain.Profile{
+					Age:               60,
+					BirthYear:         1966,
+					Total401k:         100_000,
+					TraditionalPct:    1.0,
+					FilingStatus:      domain.FilingMFJ,
+					AnnualOtherIncome: 50_000,
+					HorizonYears:      1,
+					State:             tc.state,
+				},
+				RatesOfReturn:   []float64{0},
+				ConversionCases: []float64{0},
 			})
 			require.NoError(t, err)
 			assert.InDelta(t, tc.wantRate, resp.StateTaxRate, 0.0001)
@@ -343,12 +359,14 @@ func TestMatrix_PopulatesBracketsAndStdDeduction(t *testing.T) {
 	tt := tables2026()
 	m := newMatrix(fakeRepo{tables: tt})
 	resp, err := m.Compute(domain.MatrixRequest{
-		Age:             60,
-		BirthYear:       1966,
-		Total401k:       100_000,
-		TraditionalPct:  1.0,
-		FilingStatus:    domain.FilingMFJ,
-		HorizonYears:    1,
+		Profile: domain.Profile{
+			Age:            60,
+			BirthYear:      1966,
+			Total401k:      100_000,
+			TraditionalPct: 1.0,
+			FilingStatus:   domain.FilingMFJ,
+			HorizonYears:   1,
+		},
 		RatesOfReturn:   []float64{0},
 		ConversionCases: []float64{0},
 	})
@@ -358,12 +376,14 @@ func TestMatrix_PopulatesBracketsAndStdDeduction(t *testing.T) {
 
 	// Filing-status sensitivity: single returns single's brackets and deduction.
 	resp2, err := m.Compute(domain.MatrixRequest{
-		Age:             60,
-		BirthYear:       1966,
-		Total401k:       100_000,
-		TraditionalPct:  1.0,
-		FilingStatus:    domain.FilingSingle,
-		HorizonYears:    1,
+		Profile: domain.Profile{
+			Age:            60,
+			BirthYear:      1966,
+			Total401k:      100_000,
+			TraditionalPct: 1.0,
+			FilingStatus:   domain.FilingSingle,
+			HorizonYears:   1,
+		},
 		RatesOfReturn:   []float64{0},
 		ConversionCases: []float64{0},
 	})
@@ -375,7 +395,7 @@ func TestMatrix_PopulatesBracketsAndStdDeduction(t *testing.T) {
 func TestMatrix_TaxTableLoadFailure(t *testing.T) {
 	m := newMatrix(fakeRepo{err: errors.New("boom")})
 	_, err := m.Compute(domain.MatrixRequest{
-		Age: 60, FilingStatus: domain.FilingMFJ, Total401k: 100_000,
+		Profile: domain.Profile{Age: 60, FilingStatus: domain.FilingMFJ, Total401k: 100_000},
 	})
 	require.Error(t, err)
 }

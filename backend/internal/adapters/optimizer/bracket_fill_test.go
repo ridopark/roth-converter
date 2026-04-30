@@ -47,16 +47,17 @@ func TestOptimize_Fill12Bracket(t *testing.T) {
 	// Conv = $83,000 capped by trad balance.
 	o := newOpt(fakeRepo{tables: tables2026()})
 	plan, err := o.Solve(domain.OptimizeRequest{
-		Age:               60,
-		BirthYear:         1966,
-		Total401k:         1_000_000,
-		TraditionalPct:    1.0,
-		FilingStatus:      domain.FilingMFJ,
-		AnnualOtherIncome: 50_000,
-		HorizonYears:      3,
+		Profile: domain.Profile{
+			Age:               60,
+			BirthYear:         1966,
+			Total401k:         1_000_000,
+			TraditionalPct:    1.0,
+			FilingStatus:      domain.FilingMFJ,
+			AnnualOtherIncome: 50_000,
+			HorizonYears:      3,
+		},
 		RateOfReturn:      0,
 		TargetBracketRate: 0.12,
-		IncludeRMD:        false,
 	})
 	require.NoError(t, err)
 	assert.InDelta(t, 100800, plan.TargetBracketTop, 0.01)
@@ -71,16 +72,17 @@ func TestOptimize_FillCappedByTradBalance(t *testing.T) {
 	// First year converts $100k, after which trad runs out.
 	o := newOpt(fakeRepo{tables: tables2026()})
 	plan, err := o.Solve(domain.OptimizeRequest{
-		Age:               60,
-		BirthYear:         1966,
-		Total401k:         100_000,
-		TraditionalPct:    1.0,
-		FilingStatus:      domain.FilingMFJ,
-		AnnualOtherIncome: 50_000,
-		HorizonYears:      3,
+		Profile: domain.Profile{
+			Age:               60,
+			BirthYear:         1966,
+			Total401k:         100_000,
+			TraditionalPct:    1.0,
+			FilingStatus:      domain.FilingMFJ,
+			AnnualOtherIncome: 50_000,
+			HorizonYears:      3,
+		},
 		RateOfReturn:      0,
 		TargetBracketRate: 0.22,
-		IncludeRMD:        false,
 	})
 	require.NoError(t, err)
 	assert.InDelta(t, 100_000, plan.Plan.Years[0].Conversion, 0.01)
@@ -93,16 +95,17 @@ func TestOptimize_OtherIncomeAboveBracket(t *testing.T) {
 	// Other income alone exceeds top of 12% bracket -> headroom 0 -> no conversion.
 	o := newOpt(fakeRepo{tables: tables2026()})
 	plan, err := o.Solve(domain.OptimizeRequest{
-		Age:               60,
-		BirthYear:         1966,
-		Total401k:         1_000_000,
-		TraditionalPct:    1.0,
-		FilingStatus:      domain.FilingMFJ,
-		AnnualOtherIncome: 200_000,
-		HorizonYears:      2,
+		Profile: domain.Profile{
+			Age:               60,
+			BirthYear:         1966,
+			Total401k:         1_000_000,
+			TraditionalPct:    1.0,
+			FilingStatus:      domain.FilingMFJ,
+			AnnualOtherIncome: 200_000,
+			HorizonYears:      2,
+		},
 		RateOfReturn:      0,
 		TargetBracketRate: 0.12,
-		IncludeRMD:        false,
 	})
 	require.NoError(t, err)
 	for _, y := range plan.Plan.Years {
@@ -114,12 +117,14 @@ func TestOptimize_InvalidTarget(t *testing.T) {
 	// 37% bracket has Max=0 (sentinel for infinity) -> error.
 	o := newOpt(fakeRepo{tables: tables2026()})
 	_, err := o.Solve(domain.OptimizeRequest{
-		Age:               60,
-		BirthYear:         1966,
-		Total401k:         100_000,
-		TraditionalPct:    1.0,
-		FilingStatus:      domain.FilingMFJ,
-		HorizonYears:      1,
+		Profile: domain.Profile{
+			Age:            60,
+			BirthYear:      1966,
+			Total401k:      100_000,
+			TraditionalPct: 1.0,
+			FilingStatus:   domain.FilingMFJ,
+			HorizonYears:   1,
+		},
 		TargetBracketRate: 0.37,
 	})
 	require.Error(t, err)
@@ -131,9 +136,9 @@ func TestOptimize_InvalidInputs(t *testing.T) {
 		name string
 		req  domain.OptimizeRequest
 	}{
-		{"bad filing status", domain.OptimizeRequest{Age: 60, FilingStatus: "garbage", TargetBracketRate: 0.12}},
-		{"negative balance", domain.OptimizeRequest{Age: 60, FilingStatus: domain.FilingMFJ, Total401k: -1, TargetBracketRate: 0.12}},
-		{"zero age", domain.OptimizeRequest{Age: 0, FilingStatus: domain.FilingMFJ, TargetBracketRate: 0.12}},
+		{"bad filing status", domain.OptimizeRequest{Profile: domain.Profile{Age: 60, FilingStatus: "garbage"}, TargetBracketRate: 0.12}},
+		{"negative balance", domain.OptimizeRequest{Profile: domain.Profile{Age: 60, FilingStatus: domain.FilingMFJ, Total401k: -1}, TargetBracketRate: 0.12}},
+		{"zero age", domain.OptimizeRequest{Profile: domain.Profile{Age: 0, FilingStatus: domain.FilingMFJ}, TargetBracketRate: 0.12}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
