@@ -137,6 +137,66 @@ items:
   visualizations.
 - Monte Carlo sensitivity instead of point-in-time rates.
 
+## Deployment
+
+Live: https://roth-converter.ridopark.com (frontend, Cloudflare Pages),
+https://roth-converter-api.ridopark.com (backend, Caddy + OCI VM).
+
+The backend runs as a systemd service on the same Oracle Cloud free-tier
+ARM64 VM that hosts other ridopark.com tools, fronted by Caddy with auto
+Let's Encrypt. The frontend is a Next.js static export deployed to
+Cloudflare Pages.
+
+### Production port
+
+Local dev binds the backend to 8090; the prod systemd unit binds to 8092
+because 8090 is already taken on the shared OCI VM. Caddy routes the
+public hostname to the local port.
+
+### One-time setup
+
+OCI VM:
+
+- Append the host block in `deployments/Caddyfile.snippet` to
+  `/etc/caddy/Caddyfile` and `sudo systemctl reload caddy`.
+
+Cloudflare:
+
+- Pages project named `roth-converter` (Direct Upload).
+- DNS: `roth-converter` CNAME to `roth-converter.pages.dev` (proxied) and
+  `roth-converter-api` A to the OCI public IP (proxied).
+- API token with `Account:Cloudflare Pages:Edit` scope.
+
+GitHub Actions secrets (`gh secret set <NAME>`):
+
+| Secret                    | Value                                                  |
+|---------------------------|--------------------------------------------------------|
+| `OCI_HOST`                | OCI VM public IP                                       |
+| `OCI_USER`                | `ubuntu`                                               |
+| `OCI_SSH_KEY`             | private SSH key (PEM)                                  |
+| `CLOUDFLARE_API_TOKEN`    | Cloudflare Pages API token                             |
+| `CLOUDFLARE_ACCOUNT_ID`   | Cloudflare account ID                                  |
+| `NEXT_PUBLIC_BACKEND_URL` | `https://roth-converter-api.ridopark.com`              |
+| `CORS_ALLOW_ORIGIN`       | `https://roth-converter.ridopark.com`                  |
+| `DISCORD_WEBHOOK_URL`     | Discord webhook for notifications                      |
+
+### CI/CD flow
+
+Push to `main` triggers `.github/workflows/ci.yml`:
+
+1. `test`: `go test -race ./...` plus a verify-only ARM64 build.
+2. `frontend-build`: `STATIC_EXPORT=1 npm run build` writes `apps/web/out/`.
+3. `deploy-frontend`: `wrangler pages deploy out/ --project-name=roth-converter`.
+4. `deploy-backend`: cross-compile ARM64 Go binary, scp to
+   `/opt/roth-converter/`, write `.env`, install systemd unit, restart,
+   smoke-test `/health`.
+
+### Container parity (local)
+
+`deployments/Dockerfile` and `deployments/Dockerfile.web` build distroless
+backend and standalone Next.js images. `deployments/docker-compose.yml`
+brings both up locally for parity testing.
+
 ## Tech stack
 
 - Backend: Go 1.22+, stdlib `http.ServeMux` (Go 1.22 pattern matching),

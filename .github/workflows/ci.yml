@@ -1,0 +1,155 @@
+name: CI/CD
+
+on:
+  push:
+    branches: [main]
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
+
+      - name: Test
+        working-directory: backend
+        run: go test -race ./...
+
+      - name: Build (verify compilation, ARM64 target)
+        working-directory: backend
+        run: GOOS=linux GOARCH=arm64 go build -o /dev/null ./cmd/roth-server
+
+  frontend-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install dependencies
+        working-directory: apps/web
+        run: npm ci
+
+      - name: Build static export
+        working-directory: apps/web
+        env:
+          STATIC_EXPORT: "1"
+          NEXT_PUBLIC_BACKEND_URL: ${{ secrets.NEXT_PUBLIC_BACKEND_URL }}
+        run: npm run build
+
+      - name: Upload frontend artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-out
+          path: apps/web/out/
+
+  deploy-frontend:
+    needs: [test, frontend-build]
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: frontend-out
+          path: out/
+
+      - name: Deploy to Cloudflare Pages
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: npx wrangler pages deploy out/ --project-name=roth-converter --branch=main
+
+  deploy-backend:
+    needs: [test]
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
+
+      - name: Build arm64 binary
+        working-directory: backend
+        run: CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -o roth-server ./cmd/roth-server
+
+      - name: Ensure target dir on OCI
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.OCI_HOST }}
+          username: ${{ secrets.OCI_USER }}
+          key: ${{ secrets.OCI_SSH_KEY }}
+          script: |
+            sudo mkdir -p /opt/roth-converter/data /opt/roth-converter/staging
+            sudo chown -R ubuntu:ubuntu /opt/roth-converter
+
+      - name: Copy binary to OCI
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.OCI_HOST }}
+          username: ${{ secrets.OCI_USER }}
+          key: ${{ secrets.OCI_SSH_KEY }}
+          source: backend/roth-server
+          target: /opt/roth-converter/
+          strip_components: 1
+
+      - name: Copy tax tables to OCI
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.OCI_HOST }}
+          username: ${{ secrets.OCI_USER }}
+          key: ${{ secrets.OCI_SSH_KEY }}
+          source: data/tax-tables-2026.json
+          target: /opt/roth-converter/
+
+      - name: Copy systemd unit to OCI
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.OCI_HOST }}
+          username: ${{ secrets.OCI_USER }}
+          key: ${{ secrets.OCI_SSH_KEY }}
+          source: deployments/systemd/roth-converter-server.service
+          target: /opt/roth-converter/staging/
+
+      - name: Install/restart service
+        uses: appleboy/ssh-action@v1
+        env:
+          CORS_ALLOW_ORIGIN: ${{ secrets.CORS_ALLOW_ORIGIN }}
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+        with:
+          host: ${{ secrets.OCI_HOST }}
+          username: ${{ secrets.OCI_USER }}
+          key: ${{ secrets.OCI_SSH_KEY }}
+          envs: CORS_ALLOW_ORIGIN,DISCORD_WEBHOOK_URL
+          script: |
+            cat > /opt/roth-converter/.env << ENVEOF
+            PORT=8092
+            LOG_LEVEL=info
+            CORS_ALLOW_ORIGIN=${CORS_ALLOW_ORIGIN}
+            TAX_TABLES_DIR=/opt/roth-converter/data
+            DEFAULT_TAX_YEAR=2026
+            DISCORD_WEBHOOK_URL=${DISCORD_WEBHOOK_URL}
+            ENVEOF
+
+            mkdir -p /opt/roth-converter/data
+            mv /opt/roth-converter/tax-tables-2026.json /opt/roth-converter/data/
+
+            sudo mv /opt/roth-converter/staging/deployments/systemd/roth-converter-server.service /etc/systemd/system/roth-converter-server.service
+            rm -rf /opt/roth-converter/staging
+
+            sudo systemctl daemon-reload
+            sudo systemctl enable roth-converter-server
+            chmod +x /opt/roth-converter/roth-server
+            sudo systemctl restart roth-converter-server
+            sleep 2
+            sudo systemctl is-active roth-converter-server
+            curl -sf http://localhost:8092/health && echo " health ok"

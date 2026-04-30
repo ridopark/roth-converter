@@ -1,0 +1,26 @@
+services:
+  roth-converter-server:
+    build:
+      context: ..
+      dockerfile: deployments/Dockerfile
+    container_name: roth-converter-server
+    ports:
+      - "8092:8092"
+    environment:
+      - PORT=8092
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+      - CORS_ALLOW_ORIGIN=${CORS_ALLOW_ORIGIN:-http://localhost:3010}
+      - TAX_TABLES_DIR=/data
+      - DEFAULT_TAX_YEAR=${DEFAULT_TAX_YEAR:-2026}
+
+  web:
+    build:
+      context: ..
+      dockerfile: deployments/Dockerfile.web
+      args:
+        - NEXT_PUBLIC_BACKEND_URL=${NEXT_PUBLIC_BACKEND_URL:-http://localhost:8092}
+    container_name: roth-converter-web
+    depends_on:
+      - roth-converter-server
+    ports:
+      - "3010:3010"

@@ -1,0 +1,20 @@
+[Unit]
+Description=roth-converter server
+After=network.target
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/opt/roth-converter
+ExecStart=/opt/roth-converter/roth-server
+EnvironmentFile=/opt/roth-converter/.env
+Restart=on-failure
+RestartSec=5
+
+ProtectSystem=strict
+ReadWritePaths=/opt/roth-converter
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
