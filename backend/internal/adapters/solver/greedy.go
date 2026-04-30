@@ -2,7 +2,6 @@ package solver
 
 import (
 	"fmt"
-	"math"
 
 	"github.com/rs/zerolog"
 
@@ -20,41 +19,14 @@ func New(tables ports.TaxTablesRepo, log zerolog.Logger) *Matrix {
 }
 
 func (m *Matrix) Compute(req domain.MatrixRequest) (domain.MatrixResponse, error) {
-	if !req.FilingStatus.Valid() {
-		return domain.MatrixResponse{}, fmt.Errorf("matrix: invalid filing status")
+	if err := req.Validate(); err != nil {
+		return domain.MatrixResponse{}, fmt.Errorf("matrix: %w", err)
 	}
-	if req.Total401k < 0 || req.Age <= 0 {
-		return domain.MatrixResponse{}, fmt.Errorf("matrix: invalid age or balance")
-	}
-	year := req.TaxYear
-	if year == 0 {
-		year = 2026
-	}
-	tables, err := m.tables.Get(year)
+	tables, err := m.tables.Get(req.YearOrDefault())
 	if err != nil {
 		return domain.MatrixResponse{}, fmt.Errorf("matrix: load tables: %w", err)
 	}
-	horizon := req.HorizonYears
-	if horizon <= 0 {
-		horizon = 10
-	}
-	tradPct := req.TraditionalPct
-	rothPct := req.RothPct
-	if tradPct == 0 && rothPct == 0 {
-		tradPct, rothPct = 0.70, 0.30
-	}
-	if tradPct > 1 || rothPct > 1 {
-		tradPct = tradPct / 100
-		rothPct = rothPct / 100
-	}
-	startTrad := req.Total401k * tradPct
-	startRoth := req.Total401k * rothPct
-
-	birthYear := req.BirthYear
-	if birthYear == 0 {
-		birthYear = year - req.Age
-	}
-	rmdStart := domain.RMDStartAge(birthYear)
+	r := req.Resolve(tables)
 
 	rates := req.RatesOfReturn
 	if len(rates) == 0 {
@@ -66,83 +38,42 @@ func (m *Matrix) Compute(req domain.MatrixRequest) (domain.MatrixResponse, error
 	}
 
 	scenarios := make([]domain.Scenario, 0, len(rates)*len(cases))
-	for _, r := range rates {
+	for _, rate := range rates {
 		for _, c := range cases {
-			s := projectScenario(r, c, startTrad, startRoth, req.AnnualOtherIncome,
-				req.FilingStatus, req.IncludeRMD, rmdStart, req.Age, year, horizon, tables)
-			scenarios = append(scenarios, s)
+			scenarios = append(scenarios, projectScenario(rate, c, req.Profile, r, tables))
 		}
 	}
 	return domain.MatrixResponse{
 		Scenarios:         scenarios,
 		Brackets:          tables.OrdinaryBrackets[req.FilingStatus],
 		StandardDeduction: tables.StandardDeduction[req.FilingStatus],
+		StateTaxRate:      r.StateRate,
 	}, nil
 }
 
-func projectScenario(
-	rate, convCase, startTrad, startRoth, otherIncome float64,
-	status domain.FilingStatus, includeRMD bool, rmdStartAge, startAge, startYear, horizon int,
-	tables domain.TaxTables,
-) domain.Scenario {
-	trad := startTrad
-	roth := startRoth
-	years := make([]domain.ScenarioYear, 0, horizon)
-	stdDed := tables.StandardDeduction[status]
+func projectScenario(rate, convCase float64, profile domain.Profile, r domain.Resolved, tables domain.TaxTables) domain.Scenario {
+	state := domain.YearState{Trad: r.StartTrad, Roth: r.StartRoth, Age: profile.Age, CalYear: r.Year}
+	in := domain.YearInputs{
+		Tables:      tables,
+		Status:      profile.FilingStatus,
+		OtherIncome: profile.AnnualOtherIncome,
+		StateRate:   r.StateRate,
+		Rate:        rate,
+		IncludeRMD:  profile.IncludeRMD,
+		RmdStartAge: r.RmdStartAge,
+	}
+	years := make([]domain.ScenarioYear, 0, r.Horizon)
+	var sumFedTax, sumStateTax, sumConv, sumRMD float64
 
-	var sumTax, sumConv, sumRMD float64
-
-	for i := 0; i < horizon; i++ {
-		age := startAge + i
-		calYear := startYear + i
-
-		var rmd float64
-		if includeRMD && age >= rmdStartAge && trad > 0 {
-			rmd = computeRMD(trad, age, tables.RMDDivisors)
-		}
-
-		conv := convCase
-		if conv > trad-rmd {
-			conv = trad - rmd
-		}
-		if conv < 0 {
-			conv = 0
-		}
-
-		taxable := otherIncome + conv + rmd
-		afterStd := taxable - stdDed
-		if afterStd < 0 {
-			afterStd = 0
-		}
-		fedTax := ordinaryTax(afterStd, status, tables)
-
-		startingTrad := trad
-		startingRoth := roth
-
-		trad = (trad - conv - rmd) * (1 + rate)
-		roth = (roth + conv) * (1 + rate)
-		if trad < 0 {
-			trad = 0
-		}
-
-		years = append(years, domain.ScenarioYear{
-			YearIndex:           i + 1,
-			CalendarYear:        calYear,
-			Age:                 age,
-			StartingTraditional: round(startingTrad),
-			StartingRoth:        round(startingRoth),
-			RMD:                 round(rmd),
-			Conversion:          round(conv),
-			TaxableIncome:       round(taxable),
-			FederalTax:          round(fedTax),
-			EndingTraditional:   round(trad),
-			EndingRoth:          round(roth),
-			EndingTotal:         round(trad + roth),
-		})
-
-		sumTax += fedTax
-		sumConv += conv
-		sumRMD += rmd
+	for i := 0; i < r.Horizon; i++ {
+		var year domain.ScenarioYear
+		year, state = domain.ProjectYear(state, in, func(_ domain.YearState, _ float64) float64 { return convCase })
+		year.YearIndex = i + 1
+		years = append(years, year)
+		sumFedTax += year.FederalTax
+		sumStateTax += year.StateTax
+		sumConv += year.Conversion
+		sumRMD += year.RMD
 	}
 
 	return domain.Scenario{
@@ -150,48 +81,13 @@ func projectScenario(
 		ConversionAmount: convCase,
 		Years:            years,
 		Summary: domain.ScenarioSummary{
-			TotalFederalTax:   round(sumTax),
-			TotalConverted:    round(sumConv),
-			TotalRMD:          round(sumRMD),
-			EndingTotal:       round(trad + roth),
-			EndingTraditional: round(trad),
-			EndingRoth:        round(roth),
+			TotalFederalTax:   domain.Round(sumFedTax),
+			TotalStateTax:     domain.Round(sumStateTax),
+			TotalConverted:    domain.Round(sumConv),
+			TotalRMD:          domain.Round(sumRMD),
+			EndingTotal:       domain.Round(state.Trad + state.Roth),
+			EndingTraditional: domain.Round(state.Trad),
+			EndingRoth:        domain.Round(state.Roth),
 		},
 	}
-}
-
-func computeRMD(balance float64, age int, divisors map[int]float64) float64 {
-	if age > 100 {
-		age = 100
-	}
-	d, ok := divisors[age]
-	if !ok || d == 0 {
-		return 0
-	}
-	return balance / d
-}
-
-func ordinaryTax(taxable float64, status domain.FilingStatus, t domain.TaxTables) float64 {
-	if taxable <= 0 {
-		return 0
-	}
-	bs := t.OrdinaryBrackets[status]
-	var tax, prev float64
-	for _, b := range bs {
-		max := b.Max
-		if max == 0 {
-			max = math.Inf(1)
-		}
-		if taxable <= max {
-			tax += (taxable - prev) * b.Rate
-			return tax
-		}
-		tax += (max - prev) * b.Rate
-		prev = max
-	}
-	return tax
-}
-
-func round(v float64) float64 {
-	return math.Round(v*100) / 100
 }

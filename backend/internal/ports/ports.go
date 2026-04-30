@@ -10,6 +10,10 @@ type MatrixCalculator interface {
 	Compute(req domain.MatrixRequest) (domain.MatrixResponse, error)
 }
 
+type ConversionSolver interface {
+	Solve(req domain.OptimizeRequest) (domain.OptimizePlan, error)
+}
+
 type Notifier interface {
 	Notify(title, body string)
 }

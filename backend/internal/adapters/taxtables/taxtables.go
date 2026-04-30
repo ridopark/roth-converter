@@ -41,6 +41,12 @@ type rawTables struct {
 	StandardDeduction map[string]any          `json:"standard_deduction"`
 	OrdinaryBrackets  map[string][]rawBracket `json:"ordinary_brackets"`
 	RMDDivisors       map[string]float64      `json:"rmd_uniform_lifetime_divisors"`
+	States            *rawStates              `json:"states"`
+}
+
+type rawStates struct {
+	NoTax                       []string           `json:"no_tax"`
+	ApproximateTopMarginalRate  map[string]float64 `json:"approximate_top_marginal_rate"`
 }
 
 func (r *Repo) load(year int) (domain.TaxTables, error) {
@@ -59,6 +65,17 @@ func (r *Repo) load(year int) (domain.TaxTables, error) {
 		StandardDeduction: map[domain.FilingStatus]float64{},
 		OrdinaryBrackets:  map[domain.FilingStatus][]domain.Bracket{},
 		RMDDivisors:       map[int]float64{},
+		StateTaxRates:     map[string]float64{},
+		NoTaxStates:       map[string]bool{},
+	}
+
+	if raw.States != nil {
+		for _, code := range raw.States.NoTax {
+			out.NoTaxStates[code] = true
+		}
+		for code, rate := range raw.States.ApproximateTopMarginalRate {
+			out.StateTaxRates[code] = rate
+		}
 	}
 
 	for k, v := range raw.StandardDeduction {

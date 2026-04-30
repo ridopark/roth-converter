@@ -13,6 +13,7 @@ export interface MatrixRequest {
   conversion_cases: number[];
   include_rmd: boolean;
   tax_year: number;
+  state: string;
 }
 
 export interface ScenarioYear {
@@ -25,6 +26,7 @@ export interface ScenarioYear {
   conversion: number;
   taxable_income: number;
   federal_tax: number;
+  state_tax: number;
   ending_traditional: number;
   ending_roth: number;
   ending_total: number;
@@ -32,6 +34,7 @@ export interface ScenarioYear {
 
 export interface ScenarioSummary {
   total_federal_tax: number;
+  total_state_tax: number;
   total_converted: number;
   total_rmd: number;
   ending_total: number;
@@ -55,9 +58,86 @@ export interface MatrixResponse {
   scenarios: Scenario[];
   brackets: Bracket[];
   standard_deduction: number;
+  state_tax_rate: number;
+}
+
+const STATE_NAMES: Record<string, string> = {
+  AK: "Alaska", AL: "Alabama", AR: "Arkansas", AZ: "Arizona", CA: "California",
+  CO: "Colorado", CT: "Connecticut", DC: "District of Columbia", DE: "Delaware",
+  FL: "Florida", GA: "Georgia", HI: "Hawaii", IA: "Iowa", ID: "Idaho",
+  IL: "Illinois", IN: "Indiana", KS: "Kansas", KY: "Kentucky", LA: "Louisiana",
+  MA: "Massachusetts", MD: "Maryland", ME: "Maine", MI: "Michigan", MN: "Minnesota",
+  MO: "Missouri", MS: "Mississippi", MT: "Montana", NC: "North Carolina",
+  ND: "North Dakota", NE: "Nebraska", NH: "New Hampshire", NJ: "New Jersey",
+  NM: "New Mexico", NV: "Nevada", NY: "New York", OH: "Ohio", OK: "Oklahoma",
+  OR: "Oregon", PA: "Pennsylvania", RI: "Rhode Island", SC: "South Carolina",
+  SD: "South Dakota", TN: "Tennessee", TX: "Texas", UT: "Utah", VA: "Virginia",
+  VT: "Vermont", WA: "Washington", WI: "Wisconsin", WV: "West Virginia",
+  WY: "Wyoming",
+};
+
+export interface StateOption {
+  code: string;
+  name: string;
+  rate?: number;
+  noTax?: boolean;
 }
 
 const BACKEND = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8090";
+
+export interface StatesResponse {
+  no_tax: string[];
+  rates: Record<string, number>;
+}
+
+export async function getStates(year: number): Promise<StatesResponse> {
+  const r = await fetch(`${BACKEND}/states?year=${year}`);
+  if (!r.ok) throw new Error(`states request failed: ${r.status}`);
+  return r.json();
+}
+
+export function buildStateOptions(s: StatesResponse): StateOption[] {
+  const codes = new Set<string>([...s.no_tax, ...Object.keys(s.rates)]);
+  const options: StateOption[] = [{ code: "", name: "None / not listed (0%)" }];
+  for (const code of Array.from(codes).sort()) {
+    const noTax = s.no_tax.includes(code);
+    options.push({
+      code,
+      name: STATE_NAMES[code] ?? code,
+      rate: noTax ? undefined : s.rates[code],
+      noTax,
+    });
+  }
+  return options;
+}
+
+
+export type OptimizeRequest = Omit<MatrixRequest, "rates_of_return" | "conversion_cases"> & {
+  rate_of_return: number;
+  target_bracket_rate: number;
+};
+
+export interface OptimizePlan {
+  plan: Scenario;
+  brackets: Bracket[];
+  standard_deduction: number;
+  state_tax_rate: number;
+  target_bracket_rate: number;
+  target_bracket_top: number;
+}
+
+export async function postOptimize(req: OptimizeRequest): Promise<OptimizePlan> {
+  const r = await fetch(`${BACKEND}/optimize`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(req),
+  });
+  if (!r.ok) {
+    const text = await r.text();
+    throw new Error(`optimize request failed: ${r.status} ${text}`);
+  }
+  return r.json();
+}
 
 export async function postMatrix(req: MatrixRequest): Promise<MatrixResponse> {
   const r = await fetch(`${BACKEND}/matrix`, {
@@ -69,6 +149,17 @@ export async function postMatrix(req: MatrixRequest): Promise<MatrixResponse> {
     const text = await r.text();
     throw new Error(`matrix request failed: ${r.status} ${text}`);
   }
+  return r.json();
+}
+
+export interface BracketsResponse {
+  brackets: Bracket[];
+  standard_deduction: number;
+}
+
+export async function getBrackets(status: FilingStatus, year: number): Promise<BracketsResponse> {
+  const r = await fetch(`${BACKEND}/brackets?status=${status}&year=${year}`);
+  if (!r.ok) throw new Error(`brackets request failed: ${r.status}`);
   return r.json();
 }
 

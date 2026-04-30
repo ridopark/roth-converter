@@ -13,3 +13,4 @@ apps/web/.playwright-mcp/
 *.db-shm
 *.db-wal
 .claude/scheduled_tasks.lock
+apps/web/.env.local
