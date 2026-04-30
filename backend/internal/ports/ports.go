@@ -9,3 +9,7 @@ type TaxTablesRepo interface {
 type MatrixCalculator interface {
 	Compute(req domain.MatrixRequest) (domain.MatrixResponse, error)
 }
+
+type Notifier interface {
+	Notify(title, body string)
+}

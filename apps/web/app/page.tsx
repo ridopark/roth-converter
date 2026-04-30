@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   CartesianGrid,
   Legend,
@@ -18,6 +18,7 @@ import {
   fmtPct,
   parseAmountList,
   parseRateList,
+  pingVisit,
   withBaselineCase,
   type Bracket,
   type MatrixResponse,
@@ -66,6 +67,10 @@ export default function Home() {
   const [err, setErr] = useState<string | null>(null);
   const [dialogs, setDialogs] = useState<DialogState[]>([]);
   const zCounterRef = useRef(1000);
+
+  useEffect(() => {
+    pingVisit();
+  }, []);
 
   function nextZ() {
     zCounterRef.current += 1;
@@ -153,7 +158,26 @@ export default function Home() {
           </Field>
           <Field
             label="Filing status"
-            hint="Federal filing status. Sets bracket widths and the standard deduction."
+            hint={
+              <>
+                Federal filing status. The IRS defines income-tax brackets and
+                the standard deduction <em>per status</em>, so this single
+                choice changes nearly all the per-year tax math.
+                <span className="mt-1 block">In 2026 (MFJ vs Single):</span>
+                <ul className="list-disc pl-4">
+                  <li>Standard deduction: <code>$32,200</code> MFJ vs <code>$16,100</code> Single.</li>
+                  <li>Top of the 12% bracket: <code>$100,800</code> MFJ vs <code>$50,400</code> Single. MFJ brackets are roughly double-width at low-mid incomes.</li>
+                  <li>Same conversion + same other income can land in different brackets depending on the status, so this directly drives tax cost.</li>
+                </ul>
+                <span className="mt-1 block">Pick:</span>
+                <ul className="list-disc pl-4">
+                  <li><strong>Single</strong> - unmarried at year-end.</li>
+                  <li><strong>Married filing jointly</strong> - married, filing one combined return (the common case).</li>
+                  <li><strong>Head of household</strong> - unmarried with a qualifying dependent; brackets and deduction sit between Single and MFJ.</li>
+                  <li><strong>Married filing separately</strong> - rare; usually only when one spouse has IDR student loans, large medical deductions, or wants to isolate liability.</li>
+                </ul>
+              </>
+            }
           >
             <select
               className="border rounded p-1 w-full"
@@ -434,6 +458,13 @@ function Results({
         Each row is an annual conversion strategy (the same dollar amount converted every year of the horizon).
         Each column is a rate-of-return assumption: <strong>Rate X%</strong> means both Traditional and Roth balances
         grow X% per year, compounded annually, for the whole horizon. The cell shows the strategy&apos;s outcome at that rate.
+      </p>
+      <p className="text-xs text-gray-500 mb-2">
+        Inside each cell: <strong>tax</strong> is the total federal tax paid across the horizon (sum of every
+        year&apos;s federal tax). <strong>end total</strong> is the combined 401(k) balance at the end of the horizon.
+        The bottom line splits that ending balance into <strong>T</strong> (Traditional, still pre-tax) and{" "}
+        <strong>R</strong> (Roth, already taxed - withdrawals are tax-free). A successful Roth-conversion strategy
+        moves money from T to R while keeping the total competitive with the baseline.
       </p>
       <p className="text-xs text-gray-500 mb-2">
         Click cells to open draggable drill-in dialogs. Click again to close. Open multiple to compare side-by-side.

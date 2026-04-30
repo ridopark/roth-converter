@@ -37,6 +37,21 @@ func (h *Handlers) Matrix(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, resp)
 }
 
+func (h *Handlers) Visit(w http.ResponseWriter, r *http.Request) {
+	country := r.Header.Get("CF-IPCountry")
+	if country == "" {
+		country = "?"
+	}
+	referrer := r.Header.Get("Referer")
+	if referrer == "" {
+		referrer = "(direct)"
+	}
+	ua := r.Header.Get("User-Agent")
+	body := "country: " + country + "\nreferrer: " + referrer + "\nua: " + ua
+	h.svc.Notifier.Notify("roth-converter visit", body)
+	w.WriteHeader(http.StatusNoContent)
+}
+
 func writeJSON(w http.ResponseWriter, status int, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)

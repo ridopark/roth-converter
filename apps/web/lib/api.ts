@@ -72,6 +72,12 @@ export async function postMatrix(req: MatrixRequest): Promise<MatrixResponse> {
   return r.json();
 }
 
+export function pingVisit(): void {
+  if (typeof window === "undefined") return;
+  if (BACKEND.includes("localhost")) return;
+  fetch(`${BACKEND}/visit`, { method: "POST", keepalive: true }).catch(() => {});
+}
+
 export function fmtMoney(n: number): string {
   if (Math.abs(n) >= 1_000_000) return `$${(n / 1_000_000).toFixed(2)}M`;
   if (Math.abs(n) >= 1_000) return `$${(n / 1_000).toFixed(0)}k`;
