@@ -295,7 +295,7 @@ export default function Home() {
         ))}
       </div>
 
-      <form onSubmit={submit} className="flex flex-col gap-6 mb-8 max-w-2xl">
+      <form onSubmit={submit} className="flex flex-col gap-6 mb-8">
         <fieldset className="border border-gray-200 dark:border-gray-700 rounded p-4">
           <legend className="font-semibold px-2">You</legend>
           <Field
