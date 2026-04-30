@@ -306,17 +306,29 @@ func (t TaxTables) IRMAAStandardTop(status FilingStatus) float64 {
 // or below the standard IRMAA tier (zero surcharge two years later) given the
 // user's other ordinary income, RMD, and SS benefit. Returns 0 if no IRMAA
 // tier table is loaded for the status.
+//
+// Both conv and TaxableSS depend on the other (provisional income depends on
+// conv; MAGI depends on TaxableSS). TaxableSS is monotone with slope <= 0.85,
+// so fixed-point iteration converges in a handful of steps.
 func (t TaxTables) MaxConvAtIRMAAStandardTop(otherIncome, rmd, ssBenefit float64, status FilingStatus) float64 {
 	top := t.IRMAAStandardTop(status)
 	if top <= 0 {
 		return 0
 	}
-	ssAtCap := t.TaxableSS(top-rmd, ssBenefit, status)
-	cap := top - otherIncome - rmd - ssAtCap
-	if cap < 0 {
+	conv := top - otherIncome - rmd
+	for i := 0; i < 8; i++ {
+		ss := t.TaxableSS(otherIncome+conv+rmd, ssBenefit, status)
+		next := top - otherIncome - rmd - ss
+		if math.Abs(next-conv) < 0.5 {
+			conv = next
+			break
+		}
+		conv = next
+	}
+	if conv < 0 {
 		return 0
 	}
-	return cap
+	return conv
 }
 
 // TaxableSS returns the portion of Social Security benefits subject to

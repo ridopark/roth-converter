@@ -50,12 +50,19 @@ func (o *BracketFill) Solve(req domain.OptimizeRequest) (domain.OptimizePlan, er
 	}
 
 	fillToBracket := func(s domain.YearState, rmd float64) float64 {
-		// Headroom against the post-deduction federal-bracket target. Taxable
-		// SS adds to the same post-deduction taxable income, so subtract it
-		// from headroom upfront (zero when ssBenefit==0).
-		ssAtZeroConv := tables.TaxableSS(req.AnnualOtherIncome+rmd, req.AnnualSSBenefit, req.FilingStatus)
-		baseAfterStd := math.Max(0, req.AnnualOtherIncome+rmd+ssAtZeroConv-stdDed)
-		conv := math.Max(0, bracketTop-baseAfterStd)
+		// Solve conv such that taxable_income == stdDed + bracketTop. Taxable
+		// SS depends on (other+conv+rmd), so iterate to convergence (TaxableSS
+		// is Lipschitz <= 0.85 in its provisional argument).
+		conv := math.Max(0, bracketTop-math.Max(0, req.AnnualOtherIncome+rmd-stdDed))
+		for i := 0; i < 8; i++ {
+			ss := tables.TaxableSS(req.AnnualOtherIncome+conv+rmd, req.AnnualSSBenefit, req.FilingStatus)
+			next := math.Max(0, bracketTop-math.Max(0, req.AnnualOtherIncome+rmd+ss-stdDed))
+			if math.Abs(next-conv) < 0.5 {
+				conv = next
+				break
+			}
+			conv = next
+		}
 
 		// At age >= 63, this year's MAGI seeds a Medicare surcharge two years
 		// out. Cap conversion at the standard tier so the surcharge stays $0.

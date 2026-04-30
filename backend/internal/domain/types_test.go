@@ -112,6 +112,34 @@ func TestIRMAAStandardTop(t *testing.T) {
 	assert.InDelta(t, 109000, tt.IRMAAStandardTop(FilingSingle), 0.01)
 }
 
+func TestMaxConvAtIRMAAStandardTop_NoSS(t *testing.T) {
+	// MFJ standard top = $218k. With $50k other and no SS / RMD, cap = $168k.
+	tt := tablesWithIRMAAandSS()
+	got := tt.MaxConvAtIRMAAStandardTop(50000, 0, 0, FilingMFJ)
+	assert.InDelta(t, 168000, got, 1.0)
+}
+
+func TestMaxConvAtIRMAAStandardTop_WithSS_MAGIExactlyAtCap(t *testing.T) {
+	// MFJ standard top = $218k. $50k other, $40k SS, no RMD. Solve fixed-point:
+	// MAGI = 50k + conv + TaxableSS(50k+conv, 40k, MFJ) = 218k.
+	// At provisional > $44k upper, taxable_ss saturates near 0.85*40k = $34k.
+	// So conv ~= 218k - 50k - 34k = $134k. Sanity-check via the helper.
+	tt := tablesWithIRMAAandSS()
+	got := tt.MaxConvAtIRMAAStandardTop(50000, 0, 40000, FilingMFJ)
+	// Verify the result lands MAGI at the cap (within $1).
+	taxableSS := tt.TaxableSS(50000+got, 40000, FilingMFJ)
+	magi := 50000 + got + taxableSS
+	assert.InDelta(t, 218000, magi, 1.0)
+}
+
+func TestMaxConvAtIRMAAStandardTop_NegativeWhenOtherExceedsCap(t *testing.T) {
+	// $250k other income already exceeds the $218k MFJ standard tier. Helper
+	// must return 0, not a negative cap.
+	tt := tablesWithIRMAAandSS()
+	got := tt.MaxConvAtIRMAAStandardTop(250000, 0, 0, FilingMFJ)
+	assert.Equal(t, 0.0, got)
+}
+
 func TestProjectYear_BackwardCompatWithoutSSorIRMAA(t *testing.T) {
 	// With AnnualSSBenefit=0 and age<65, projection should match v1 behavior.
 	tt := tablesWithIRMAAandSS()
