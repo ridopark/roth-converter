@@ -278,6 +278,7 @@ func (d *DP) Solve(req domain.OptimizeRequest) (domain.OptimizePlan, error) {
 		RmdStartAge:      r.RmdStartAge,
 		AcaHouseholdSize: req.AcaHouseholdSize,
 		AcaAnnualPremium: req.AcaAnnualPremium,
+		TaxFundingSource: req.TaxFundingSource,
 	}
 
 	magiPrev2 := req.MAGITwoYearsAgo

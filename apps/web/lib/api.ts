@@ -23,6 +23,7 @@ export interface MatrixRequest {
   other_income_per_year?: number[];
   ss_benefit_per_year?: number[];
   taxable_div_ltcg_per_year?: number[];
+  tax_funding_source?: "external" | "traditional";
 }
 
 export interface ScenarioYear {
