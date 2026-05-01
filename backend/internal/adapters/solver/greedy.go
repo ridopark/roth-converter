@@ -63,6 +63,7 @@ func projectScenario(rate, convCase float64, profile domain.Profile, r domain.Re
 		RmdStartAge:      r.RmdStartAge,
 		AcaHouseholdSize: profile.AcaHouseholdSize,
 		AcaAnnualPremium: profile.AcaAnnualPremium,
+		TaxFundingSource: profile.TaxFundingSource,
 	}
 	years := make([]domain.ScenarioYear, 0, r.Horizon)
 	var sumFedTax, sumStateTax, sumConv, sumRMD, sumIRMAA, sumTaxableSS, sumNIIT, sumACA float64

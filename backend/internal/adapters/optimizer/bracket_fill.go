@@ -46,6 +46,7 @@ func (o *BracketFill) Solve(req domain.OptimizeRequest) (domain.OptimizePlan, er
 		RmdStartAge:      r.RmdStartAge,
 		AcaHouseholdSize: req.AcaHouseholdSize,
 		AcaAnnualPremium: req.AcaAnnualPremium,
+		TaxFundingSource: req.TaxFundingSource,
 	}
 
 	fillToBracket := func(s domain.YearState, rmd float64) float64 {

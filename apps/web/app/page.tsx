@@ -55,6 +55,7 @@ interface FormState {
   target_bracket_rate: number;
   respect_irmaa: boolean;
   strategy: "bracket_fill" | "dp";
+  tax_funding_source: "external" | "traditional";
   per_year_advanced: boolean;
   other_income_per_year: number[];
   ss_benefit_per_year: number[];
@@ -81,6 +82,7 @@ const DEFAULT_FORM: FormState = {
   target_bracket_rate: 0.22,
   respect_irmaa: true,
   strategy: "bracket_fill",
+  tax_funding_source: "external",
   per_year_advanced: false,
   other_income_per_year: [],
   ss_benefit_per_year: [],
@@ -215,6 +217,7 @@ export default function Home() {
           include_rmd: form.include_rmd,
           tax_year: form.tax_year,
           state: form.state,
+          tax_funding_source: form.tax_funding_source,
           ...(form.per_year_advanced && form.other_income_per_year.length > 0
             ? { other_income_per_year: form.other_income_per_year.slice(0, form.horizon_years) }
             : {}),
@@ -246,6 +249,7 @@ export default function Home() {
           state: form.state,
           respect_irmaa: form.respect_irmaa,
           strategy: form.strategy,
+          tax_funding_source: form.tax_funding_source,
           ...(form.per_year_advanced && form.other_income_per_year.length > 0
             ? { other_income_per_year: form.other_income_per_year.slice(0, form.horizon_years) }
             : {}),
@@ -542,6 +546,47 @@ export default function Home() {
               </Hint>
             </span>
           </label>
+          <Field
+            label="Conversion tax funded from"
+            hint={
+              <>
+                Where does the federal + state income tax on each Roth
+                conversion come from?
+                <ul className="list-disc pl-4 mt-1">
+                  <li>
+                    <strong>Outside the 401(k)</strong> (default): you pay
+                    the tax with cash from a taxable account or savings.
+                    The full conversion amount lands in Roth.
+                  </li>
+                  <li>
+                    <strong>Traditional 401(k)</strong>: the tax is withheld
+                    from the conversion proceeds before they reach Roth.
+                    The Traditional withdrawal still equals the conversion
+                    amount, but only <code>conversion - federal tax - state tax</code>
+                    actually lands in Roth. IRMAA / NIIT / ACA penalties are
+                    separate ongoing costs and are not deducted here.
+                  </li>
+                </ul>
+              </>
+            }
+          >
+            <div className="flex gap-1">
+              {(["external", "traditional"] as const).map((s) => (
+                <button
+                  key={s}
+                  type="button"
+                  onClick={() => setForm({ ...form, tax_funding_source: s })}
+                  className={`px-2 py-0.5 text-xs rounded border ${
+                    form.tax_funding_source === s
+                      ? "bg-amber-500 text-white border-amber-600"
+                      : "bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200 border-gray-300 dark:border-gray-600 hover:bg-amber-50 dark:hover:bg-gray-700"
+                  }`}
+                >
+                  {s === "external" ? "Outside 401(k)" : "Traditional 401(k)"}
+                </button>
+              ))}
+            </div>
+          </Field>
         </fieldset>
 
         <fieldset className="border border-gray-200 dark:border-gray-700 rounded p-4">
@@ -1248,6 +1293,22 @@ function OverviewCharts({
   );
 }
 
+function OrderedLegend({ seriesKeys }: { seriesKeys: string[] }) {
+  return (
+    <ul className="flex flex-wrap justify-center gap-x-3 gap-y-1 text-[11px] mt-1 px-2">
+      {seriesKeys.map((k, i) => (
+        <li key={k} className="flex items-center gap-1">
+          <span
+            className="inline-block w-3 h-3 rounded-sm"
+            style={{ backgroundColor: SERIES_COLORS[i % SERIES_COLORS.length] }}
+          />
+          <span>{k}</span>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
 function SeriesChart({
   title,
   data,
@@ -1269,7 +1330,10 @@ function SeriesChart({
             formatter={(value, name) => [fmtMoney(Number(value)), name as string]}
             labelFormatter={(label) => `Year ${String(label)}`}
           />
-          <Legend wrapperStyle={{ fontSize: 11 }} />
+          <Legend
+            wrapperStyle={{ fontSize: 11 }}
+            content={() => <OrderedLegend seriesKeys={seriesKeys} />}
+          />
           {seriesKeys.map((k, i) => (
             <Line
               key={k}

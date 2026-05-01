@@ -24,6 +24,28 @@ func (f FilingStatus) Valid() bool {
 	return false
 }
 
+type TaxFundingSource string
+
+const (
+	// TaxFundingExternal means the conversion tax is paid with money outside
+	// the 401(k); the full conversion amount lands in Roth. (v1 default.)
+	TaxFundingExternal TaxFundingSource = "external"
+	// TaxFundingTraditional means federal + state income tax owed on the
+	// conversion is deducted from the conversion proceeds before they reach
+	// Roth. The Traditional withdrawal still equals the conversion amount;
+	// Roth gain reduces by the federal + state tax. IRMAA / NIIT / ACA are
+	// not "conversion taxes" and remain surfaced in the summary but do not
+	// reduce balances.
+	TaxFundingTraditional TaxFundingSource = "traditional"
+)
+
+func (s TaxFundingSource) Resolve() TaxFundingSource {
+	if s == TaxFundingTraditional {
+		return TaxFundingTraditional
+	}
+	return TaxFundingExternal
+}
+
 type Profile struct {
 	Age                     int          `json:"age"`
 	BirthYear               int          `json:"birth_year"`
@@ -42,9 +64,10 @@ type Profile struct {
 	TaxableDivLTCG          float64      `json:"taxable_div_ltcg,omitempty"`
 	AcaHouseholdSize        int          `json:"aca_household_size,omitempty"`
 	AcaAnnualPremium        float64      `json:"aca_annual_premium,omitempty"`
-	OtherIncomePerYear      []float64    `json:"other_income_per_year,omitempty"`
-	SSBenefitPerYear        []float64    `json:"ss_benefit_per_year,omitempty"`
-	TaxableDivLTCGPerYear   []float64    `json:"taxable_div_ltcg_per_year,omitempty"`
+	OtherIncomePerYear      []float64        `json:"other_income_per_year,omitempty"`
+	SSBenefitPerYear        []float64        `json:"ss_benefit_per_year,omitempty"`
+	TaxableDivLTCGPerYear   []float64        `json:"taxable_div_ltcg_per_year,omitempty"`
+	TaxFundingSource        TaxFundingSource `json:"tax_funding_source,omitempty"`
 }
 
 type Resolved struct {
@@ -466,6 +489,7 @@ type YearInputs struct {
 	TaxableDivLTCG   float64
 	AcaHouseholdSize int
 	AcaAnnualPremium float64
+	TaxFundingSource TaxFundingSource
 }
 
 func ProjectYear(state YearState, in YearInputs, computeConv func(state YearState, rmd float64) float64) (ScenarioYear, YearState) {
@@ -511,8 +535,20 @@ func ProjectYear(state YearState, in YearInputs, computeConv func(state YearStat
 
 	startingTrad, startingRoth := state.Trad, state.Roth
 
+	// Conversion landing depends on who funds the tax. "external" (default)
+	// pays from outside the 401(k), so all of conv reaches Roth. "traditional"
+	// withholds federal + state from the conversion proceeds; only the net
+	// reaches Roth. Other costs (IRMAA, NIIT, ACA) are not conversion taxes
+	// and stay external regardless of this flag.
+	rothLanding := conv
+	if in.TaxFundingSource.Resolve() == TaxFundingTraditional {
+		rothLanding = conv - fedTax - stateTax
+		if rothLanding < 0 {
+			rothLanding = 0
+		}
+	}
 	nextTrad := (state.Trad - conv - rmd) * (1 + in.Rate)
-	nextRoth := (state.Roth + conv) * (1 + in.Rate)
+	nextRoth := (state.Roth + rothLanding) * (1 + in.Rate)
 	if nextTrad < 0 {
 		nextTrad = 0
 	}

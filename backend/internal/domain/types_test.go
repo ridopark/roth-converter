@@ -311,6 +311,92 @@ func TestProjectYear_ACAPenaltyZeroAt65Plus(t *testing.T) {
 	assert.Equal(t, 0.0, year.ACAPenalty)
 }
 
+func TestProjectYear_TaxFundingExternal_FullConversionLandsInRoth(t *testing.T) {
+	// Default behavior: external funding, all of conv reaches Roth.
+	tt := tablesWithIRMAAandSS()
+	tt.OrdinaryBrackets = map[FilingStatus][]Bracket{
+		FilingMFJ: {{Rate: 0.10, Max: 24800}, {Rate: 0.12, Max: 100800}, {Rate: 0.22, Max: 211400}, {Rate: 0.37, Max: 0}},
+	}
+	state := YearState{Trad: 200000, Roth: 0, Age: 60, CalYear: 2026}
+	in := YearInputs{
+		Tables:      tt,
+		Status:      FilingMFJ,
+		OtherIncome: 50000,
+	}
+	year, next := ProjectYear(state, in, func(YearState, float64) float64 { return 50000 })
+	// Conv = 50k. roth' = (0 + 50000) * 1 = 50000. Federal tax landed elsewhere.
+	assert.InDelta(t, 50000, next.Roth, 0.01)
+	assert.Greater(t, year.FederalTax, 0.0)
+}
+
+func TestProjectYear_TaxFundingTraditional_RothNetsTaxFromConversion(t *testing.T) {
+	// Same profile with traditional funding: Roth gain = conv - fed_tax - state_tax.
+	tt := tablesWithIRMAAandSS()
+	tt.OrdinaryBrackets = map[FilingStatus][]Bracket{
+		FilingMFJ: {{Rate: 0.10, Max: 24800}, {Rate: 0.12, Max: 100800}, {Rate: 0.22, Max: 211400}, {Rate: 0.37, Max: 0}},
+	}
+	tt.StateTaxRates = map[string]float64{"CA": 0.10}
+	state := YearState{Trad: 200000, Roth: 0, Age: 60, CalYear: 2026}
+	in := YearInputs{
+		Tables:           tt,
+		Status:           FilingMFJ,
+		OtherIncome:      50000,
+		StateRate:        0.10,
+		TaxFundingSource: TaxFundingTraditional,
+	}
+	year, next := ProjectYear(state, in, func(YearState, float64) float64 { return 50000 })
+	// taxable = 100k, after_std = 67.8k. Fed = 24.8*0.10 + (67.8-24.8)*0.12 = 2480 + 5160 = 7640.
+	// State = 67.8k * 0.10 = 6780. Total tax burden: 14420.
+	// Roth gain = 50000 - 14420 = 35580.
+	assert.InDelta(t, 7640, year.FederalTax, 0.01)
+	assert.InDelta(t, 6780, year.StateTax, 0.01)
+	assert.InDelta(t, 35580, next.Roth, 0.01)
+	// Trad outflow unchanged: trad' = 200000 - 50000 = 150000.
+	assert.InDelta(t, 150000, next.Trad, 0.01)
+}
+
+func TestProjectYear_TaxFundingTraditional_ZeroConversionMatchesExternal(t *testing.T) {
+	// With conv=0 the funding flag has no effect (no conversion to fund).
+	tt := tablesWithIRMAAandSS()
+	tt.OrdinaryBrackets = map[FilingStatus][]Bracket{
+		FilingMFJ: {{Rate: 0.10, Max: 24800}, {Rate: 0.37, Max: 0}},
+	}
+	state := YearState{Trad: 200000, Roth: 50000, Age: 60, CalYear: 2026}
+
+	external := YearInputs{Tables: tt, Status: FilingMFJ, OtherIncome: 50000}
+	traditional := external
+	traditional.TaxFundingSource = TaxFundingTraditional
+
+	_, ne := ProjectYear(state, external, func(YearState, float64) float64 { return 0 })
+	_, nt := ProjectYear(state, traditional, func(YearState, float64) float64 { return 0 })
+	assert.InDelta(t, ne.Roth, nt.Roth, 0.01)
+	assert.InDelta(t, ne.Trad, nt.Trad, 0.01)
+}
+
+func TestProjectYear_TaxFundingTraditional_TaxExceedsConvFloors(t *testing.T) {
+	// Edge: large RMD + small conv pushes fed_tax above conv. Roth gain
+	// floors at 0 rather than going negative.
+	tt := tablesWithIRMAAandSS()
+	tt.OrdinaryBrackets = map[FilingStatus][]Bracket{
+		FilingMFJ: {{Rate: 0.37, Max: 0}}, // single 37% bracket
+	}
+	tt.RMDDivisors = map[int]float64{75: 24.6}
+	state := YearState{Trad: 1_000_000, Roth: 0, Age: 75, CalYear: 2026}
+	in := YearInputs{
+		Tables:           tt,
+		Status:           FilingMFJ,
+		OtherIncome:      0,
+		IncludeRMD:       true,
+		RmdStartAge:      75,
+		TaxFundingSource: TaxFundingTraditional,
+	}
+	year, next := ProjectYear(state, in, func(YearState, float64) float64 { return 1000 })
+	// RMD ~= $40,650. taxable = 1000 + 40650 - 32200 = 9450. tax = 9450 * 0.37 = 3496.50.
+	// roth_landing = 1000 - 3496.50 < 0 -> floored at 0.
+	assert.Greater(t, year.FederalTax, 1000.0)
+	assert.InDelta(t, 0, next.Roth, 0.01)
+}
+
 func TestRespectIRMAAEnabled_DefaultTrue(t *testing.T) {
 	r := OptimizeRequest{}
 	assert.True(t, r.RespectIRMAAEnabled())
