@@ -1,5 +1,11 @@
 export type FilingStatus = "single" | "mfj" | "hoh" | "mfs";
 
+export interface StockLot {
+  cost_basis: number;
+  current_value: number;
+  gain_type: "lt" | "st";
+}
+
 export interface MatrixRequest {
   age: number;
   birth_year: number;
@@ -24,6 +30,7 @@ export interface MatrixRequest {
   ss_benefit_per_year?: number[];
   taxable_div_ltcg_per_year?: number[];
   tax_funding_source?: "external" | "traditional";
+  stock_lots?: StockLot[];
 }
 
 export interface ScenarioYear {
@@ -46,6 +53,7 @@ export interface ScenarioYear {
   irmaa_tier_label?: string;
   niit?: number;
   aca_penalty?: number;
+  stock_sale_tax?: number;
 }
 
 export interface ScenarioSummary {
@@ -60,6 +68,7 @@ export interface ScenarioSummary {
   total_irmaa_surcharge?: number;
   total_niit?: number;
   total_aca_penalty?: number;
+  total_stock_sale_tax?: number;
 }
 
 export interface Scenario {

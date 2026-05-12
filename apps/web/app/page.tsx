@@ -31,6 +31,7 @@ import {
   type MatrixResponse,
   type FilingStatus,
   type Scenario,
+  type StockLot,
 } from "@/lib/api";
 
 type Mode = "matrix" | "plan";
@@ -56,6 +57,7 @@ interface FormState {
   respect_irmaa: boolean;
   strategy: "bracket_fill" | "dp";
   tax_funding_source: "external" | "traditional";
+  stock_lots: StockLot[];
   per_year_advanced: boolean;
   other_income_per_year: number[];
   ss_benefit_per_year: number[];
@@ -83,6 +85,7 @@ const DEFAULT_FORM: FormState = {
   respect_irmaa: true,
   strategy: "bracket_fill",
   tax_funding_source: "external",
+  stock_lots: [],
   per_year_advanced: false,
   other_income_per_year: [],
   ss_benefit_per_year: [],
@@ -143,9 +146,11 @@ export default function Home() {
     if (!bracketsInfo) return;
     const b = bracketsInfo.brackets.find((br) => br.rate === targetRate);
     if (!b || b.max <= 0) return;
-    const headroom = Math.max(0, b.max - Math.max(0, form.annual_other_income - bracketsInfo.standard_deduction));
-    if (headroom <= 0) return;
-    const rounded = Math.round(headroom / 100) * 100;
+    const headroom = b.max - Math.max(0, form.annual_other_income - bracketsInfo.standard_deduction);
+    // When income already fills this bracket, still let the user add the bracket-top
+    // amount as a conversion case so they can see what full-bracket conversion looks like.
+    const amount = headroom > 0 ? headroom : b.max;
+    const rounded = Math.round(amount / 100) * 100;
     const existing = parseAmountList(form.conversion_cases_str);
     if (existing.includes(rounded)) return;
     const merged = withBaselineCase([...existing, rounded]);
@@ -218,6 +223,9 @@ export default function Home() {
           tax_year: form.tax_year,
           state: form.state,
           tax_funding_source: form.tax_funding_source,
+          ...(form.tax_funding_source === "external" && form.stock_lots.length > 0
+            ? { stock_lots: form.stock_lots.filter((l) => l.current_value > 0) }
+            : {}),
           ...(form.per_year_advanced && form.other_income_per_year.length > 0
             ? { other_income_per_year: form.other_income_per_year.slice(0, form.horizon_years) }
             : {}),
@@ -250,6 +258,9 @@ export default function Home() {
           respect_irmaa: form.respect_irmaa,
           strategy: form.strategy,
           tax_funding_source: form.tax_funding_source,
+          ...(form.tax_funding_source === "external" && form.stock_lots.length > 0
+            ? { stock_lots: form.stock_lots.filter((l) => l.current_value > 0) }
+            : {}),
           ...(form.per_year_advanced && form.other_income_per_year.length > 0
             ? { other_income_per_year: form.other_income_per_year.slice(0, form.horizon_years) }
             : {}),
@@ -586,6 +597,91 @@ export default function Home() {
                 </button>
               ))}
             </div>
+            {form.tax_funding_source === "external" && (
+              <div className="mt-3 border border-amber-200 dark:border-amber-800/40 rounded p-3 bg-amber-50/50 dark:bg-amber-900/10">
+                <div className="flex items-center gap-1 text-xs font-medium mb-2 text-gray-700 dark:text-gray-300">
+                  Stock lots to sell for taxes (optional)
+                  <Hint>
+                    If you&apos;d need to sell appreciated stock to raise the tax cash, enter each
+                    lot&apos;s cost basis, current value, and gain type. The calculator estimates the
+                    additional capital-gains tax triggered by the sale and shows it as &ldquo;stock
+                    sale tax&rdquo; in the results — a hidden cost the base projection ignores.
+                    Long-term gains (held &gt;1 yr) use the 0/15/20% LTCG brackets plus NIIT if
+                    your MAGI is high enough. Short-term gains are taxed at your ordinary marginal
+                    rate. Leave empty if you have cash available with no embedded gain.
+                  </Hint>
+                </div>
+                {form.stock_lots.map((lot, i) => (
+                  <div key={i} className="flex flex-wrap gap-2 items-center mb-2 text-xs">
+                    <span className="text-gray-400 w-4">{i + 1}.</span>
+                    <div className="flex flex-col gap-0.5">
+                      <span className="text-gray-500 dark:text-gray-400">Cost basis</span>
+                      <input
+                        type="number"
+                        className="border border-gray-300 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100 rounded p-1 w-28"
+                        value={lot.cost_basis}
+                        onChange={(e) => {
+                          const next = [...form.stock_lots];
+                          next[i] = { ...next[i], cost_basis: Number(e.target.value) };
+                          setForm({ ...form, stock_lots: next });
+                        }}
+                      />
+                    </div>
+                    <div className="flex flex-col gap-0.5">
+                      <span className="text-gray-500 dark:text-gray-400">Current value</span>
+                      <input
+                        type="number"
+                        className="border border-gray-300 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100 rounded p-1 w-28"
+                        value={lot.current_value}
+                        onChange={(e) => {
+                          const next = [...form.stock_lots];
+                          next[i] = { ...next[i], current_value: Number(e.target.value) };
+                          setForm({ ...form, stock_lots: next });
+                        }}
+                      />
+                    </div>
+                    <div className="flex flex-col gap-0.5">
+                      <span className="text-gray-500 dark:text-gray-400">Gain type</span>
+                      <div className="flex gap-0.5">
+                        {(["lt", "st"] as const).map((g) => (
+                          <button
+                            key={g}
+                            type="button"
+                            onClick={() => {
+                              const next = [...form.stock_lots];
+                              next[i] = { ...next[i], gain_type: g };
+                              setForm({ ...form, stock_lots: next });
+                            }}
+                            className={`px-2 py-0.5 rounded border ${
+                              lot.gain_type === g
+                                ? "bg-amber-500 text-white border-amber-600"
+                                : "bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200 border-gray-300 dark:border-gray-600 hover:bg-amber-50 dark:hover:bg-gray-700"
+                            }`}
+                          >
+                            {g === "lt" ? "Long-term" : "Short-term"}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setForm({ ...form, stock_lots: form.stock_lots.filter((_, j) => j !== i) })}
+                      className="text-red-400 hover:text-red-600 px-1 self-end pb-1"
+                      aria-label="Remove lot"
+                    >
+                      ×
+                    </button>
+                  </div>
+                ))}
+                <button
+                  type="button"
+                  onClick={() => setForm({ ...form, stock_lots: [...form.stock_lots, { cost_basis: 0, current_value: 0, gain_type: "lt" }] })}
+                  className="text-xs text-amber-600 dark:text-amber-400 hover:underline"
+                >
+                  + Add lot
+                </button>
+              </div>
+            )}
           </Field>
         </fieldset>
 
@@ -666,25 +762,21 @@ export default function Home() {
               <div className="flex items-center gap-1 mt-1 flex-wrap">
                 <span className="text-[11px] text-gray-500 dark:text-gray-400">Add bracket-fill:</span>
                 {bracketsInfo.brackets
-                  .filter((b) => b.max > 0 && b.rate < 0.32)
+                  .filter((b) => b.max > 0)
                   .map((b) => {
-                    const headroom = Math.max(
-                      0,
-                      b.max - Math.max(0, form.annual_other_income - bracketsInfo.standard_deduction)
-                    );
-                    const disabled = headroom <= 0;
+                    const headroom = b.max - Math.max(0, form.annual_other_income - bracketsInfo.standard_deduction);
+                    const amount = Math.round(Math.max(headroom, b.max) / 100) * 100;
                     return (
                       <button
                         key={b.rate}
                         type="button"
-                        disabled={disabled}
                         onClick={() => fillBracket(b.rate)}
                         title={
-                          disabled
-                            ? `Other income already exceeds top of ${(b.rate * 100).toFixed(0)}%`
-                            : `Add ${fmtMoney(Math.round(headroom / 100) * 100)}/yr to fill the ${(b.rate * 100).toFixed(0)}% bracket`
+                          headroom > 0
+                            ? `Add ${fmtMoney(Math.round(headroom / 100) * 100)}/yr — fills the ${(b.rate * 100).toFixed(0)}% bracket`
+                            : `Add ${fmtMoney(amount)}/yr — ${(b.rate * 100).toFixed(0)}% bracket top (income already exceeds headroom)`
                         }
-                        className="px-1.5 py-0.5 text-[11px] rounded border border-amber-300 dark:border-amber-700 text-amber-900 dark:text-amber-200 hover:bg-amber-50 dark:hover:bg-amber-900/30 disabled:opacity-40 disabled:cursor-not-allowed"
+                        className="px-1.5 py-0.5 text-[11px] rounded border border-amber-300 dark:border-amber-700 text-amber-900 dark:text-amber-200 hover:bg-amber-50 dark:hover:bg-amber-900/30"
                       >
                         Fill {(b.rate * 100).toFixed(0)}%
                       </button>
@@ -776,7 +868,7 @@ export default function Home() {
                 {bracketsInfo ? (
                   <div className="flex flex-wrap gap-1">
                     {bracketsInfo.brackets
-                      .filter((b) => b.max > 0 && b.rate < 0.32)
+                      .filter((b) => b.max > 0)
                       .map((b) => {
                         const selected = Math.abs(form.target_bracket_rate - b.rate) < 1e-9;
                         return (
@@ -1104,6 +1196,9 @@ function Results({
   const hasACA = resp.scenarios.some(
     (s) => (s.summary.total_aca_penalty ?? 0) > 0,
   );
+  const hasStockSaleTax = resp.scenarios.some(
+    (s) => (s.summary.total_stock_sale_tax ?? 0) > 0,
+  );
 
   const headingRef = useRef<HTMLHeadingElement>(null);
   useEffect(() => {
@@ -1170,6 +1265,7 @@ function Results({
                         {hasIRMAA && <MatrixCellRow label="IRMAA" value={s.summary.total_irmaa_surcharge ?? 0} />}
                         {hasNIIT && <MatrixCellRow label="NIIT" value={s.summary.total_niit ?? 0} />}
                         {hasACA && <MatrixCellRow label="ACA penalty" value={s.summary.total_aca_penalty ?? 0} />}
+                        {hasStockSaleTax && <MatrixCellRow label="stock sale tax" value={s.summary.total_stock_sale_tax ?? 0} />}
                         {hasTaxableSS && <MatrixCellRow label="taxable SS" value={s.summary.total_taxable_ss ?? 0} />}
                         <MatrixCellRow label="end total" value={s.summary.ending_total} />
                         <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">
@@ -1615,6 +1711,7 @@ function YearTable({ scenario }: { scenario: Scenario }) {
   const hasIRMAA = scenario.years.some((y) => (y.irmaa_surcharge ?? 0) > 0);
   const hasNIIT = scenario.years.some((y) => (y.niit ?? 0) > 0);
   const hasACA = scenario.years.some((y) => (y.aca_penalty ?? 0) > 0);
+  const hasStockSaleTax = scenario.years.some((y) => (y.stock_sale_tax ?? 0) > 0);
   return (
     <div>
       <p className="text-sm text-gray-700 dark:text-gray-200 mb-2">
@@ -1648,6 +1745,7 @@ function YearTable({ scenario }: { scenario: Scenario }) {
               {hasIRMAA && <th className="p-2 text-left font-semibold">IRMAA</th>}
               {hasNIIT && <th className="p-2 text-left font-semibold">NIIT</th>}
               {hasACA && <th className="p-2 text-left font-semibold">ACA penalty</th>}
+              {hasStockSaleTax && <th className="p-2 text-left font-semibold">Stock sale tax</th>}
               <th className="p-2 text-left font-semibold">End traditional</th>
               <th className="p-2 text-left font-semibold">End Roth</th>
               <th className="p-2 text-left font-semibold">End total</th>
@@ -1674,6 +1772,9 @@ function YearTable({ scenario }: { scenario: Scenario }) {
                 )}
                 {hasACA && (
                   <td className="p-2 border-b border-amber-100 dark:border-amber-800/40 text-red-600 dark:text-red-400">{(y.aca_penalty ?? 0) > 0 ? fmtMoney(y.aca_penalty ?? 0) : "-"}</td>
+                )}
+                {hasStockSaleTax && (
+                  <td className="p-2 border-b border-amber-100 dark:border-amber-800/40 text-orange-600 dark:text-orange-400">{(y.stock_sale_tax ?? 0) > 0 ? fmtMoney(y.stock_sale_tax ?? 0) : "-"}</td>
                 )}
                 <td className="p-2 border-b border-amber-100 dark:border-amber-800/40">{fmtMoney(y.ending_traditional)}</td>
                 <td className="p-2 border-b border-amber-100 dark:border-amber-800/40">{fmtMoney(y.ending_roth)}</td>

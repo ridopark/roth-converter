@@ -279,12 +279,13 @@ func (d *DP) Solve(req domain.OptimizeRequest) (domain.OptimizePlan, error) {
 		AcaHouseholdSize: req.AcaHouseholdSize,
 		AcaAnnualPremium: req.AcaAnnualPremium,
 		TaxFundingSource: req.TaxFundingSource,
+		StockLots:        req.StockLots,
 	}
 
 	magiPrev2 := req.MAGITwoYearsAgo
 	magiPrev1 := req.MAGIOneYearAgo
 	years := make([]domain.ScenarioYear, 0, horizon)
-	var sumFedTax, sumStateTax, sumConv, sumRMD, sumIRMAA, sumTaxableSS, sumNIIT, sumACA float64
+	var sumFedTax, sumStateTax, sumConv, sumRMD, sumIRMAA, sumTaxableSS, sumNIIT, sumACA, sumStockSaleTax float64
 
 	for i := 0; i < horizon; i++ {
 		yv := perYear[i]
@@ -323,6 +324,7 @@ func (d *DP) Solve(req domain.OptimizeRequest) (domain.OptimizePlan, error) {
 		sumTaxableSS += year.TaxableSS
 		sumNIIT += year.NIIT
 		sumACA += year.ACAPenalty
+		sumStockSaleTax += year.StockSaleTax
 		magiPrev2, magiPrev1 = magiPrev1, year.MAGI
 	}
 
@@ -345,6 +347,7 @@ func (d *DP) Solve(req domain.OptimizeRequest) (domain.OptimizePlan, error) {
 				TotalIRMAASurcharge: domain.Round(sumIRMAA),
 				TotalNIIT:           domain.Round(sumNIIT),
 				TotalACAPenalty:     domain.Round(sumACA),
+				TotalStockSaleTax:   domain.Round(sumStockSaleTax),
 			},
 		},
 		Brackets:          tables.OrdinaryBrackets[req.FilingStatus],

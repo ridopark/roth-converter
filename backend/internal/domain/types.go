@@ -24,6 +24,24 @@ func (f FilingStatus) Valid() bool {
 	return false
 }
 
+type GainType string
+
+const (
+	GainTypeLT GainType = "lt"
+	GainTypeST GainType = "st"
+)
+
+type StockLot struct {
+	CostBasis    float64  `json:"cost_basis"`
+	CurrentValue float64  `json:"current_value"`
+	GainType     GainType `json:"gain_type"` // "lt" or "st"
+}
+
+type LTCGBracketSet struct {
+	ZeroMax    float64 `json:"zero_max"`
+	FifteenMax float64 `json:"fifteen_max"`
+}
+
 type TaxFundingSource string
 
 const (
@@ -68,6 +86,7 @@ type Profile struct {
 	SSBenefitPerYear        []float64        `json:"ss_benefit_per_year,omitempty"`
 	TaxableDivLTCGPerYear   []float64        `json:"taxable_div_ltcg_per_year,omitempty"`
 	TaxFundingSource        TaxFundingSource `json:"tax_funding_source,omitempty"`
+	StockLots               []StockLot       `json:"stock_lots,omitempty"`
 }
 
 type Resolved struct {
@@ -150,6 +169,7 @@ type ScenarioYear struct {
 	IRMAATierLabel      string  `json:"irmaa_tier_label,omitempty"`
 	NIIT                float64 `json:"niit,omitempty"`
 	ACAPenalty          float64 `json:"aca_penalty,omitempty"`
+	StockSaleTax        float64 `json:"stock_sale_tax,omitempty"`
 }
 
 type ScenarioSummary struct {
@@ -164,6 +184,7 @@ type ScenarioSummary struct {
 	TotalIRMAASurcharge float64 `json:"total_irmaa_surcharge,omitempty"`
 	TotalNIIT           float64 `json:"total_niit,omitempty"`
 	TotalACAPenalty     float64 `json:"total_aca_penalty,omitempty"`
+	TotalStockSaleTax   float64 `json:"total_stock_sale_tax,omitempty"`
 }
 
 type Scenario struct {
@@ -240,6 +261,7 @@ type TaxTables struct {
 	// Households larger than 5 use the BaseSize-1 lookup plus AcaFPLPerExtra.
 	AcaFPL400Pct      map[int]float64
 	AcaFPLPerExtra    float64
+	LTCGBrackets      map[FilingStatus]LTCGBracketSet
 }
 
 func RMDStartAge(birthYear int) int {
@@ -416,6 +438,37 @@ func (t TaxTables) ACA400PctFPL(householdSize int) float64 {
 	return maxVal + float64(householdSize-maxKey)*t.AcaFPLPerExtra
 }
 
+// LTCGRate returns the federal long-term capital gains rate for the given MAGI
+// and filing status (0%, 15%, or 20%). Does not include NIIT; add that separately.
+func (t TaxTables) LTCGRate(magi float64, status FilingStatus) float64 {
+	bs, ok := t.LTCGBrackets[status]
+	if !ok {
+		return 0.15
+	}
+	if magi <= bs.ZeroMax {
+		return 0
+	}
+	if magi <= bs.FifteenMax {
+		return 0.15
+	}
+	return 0.20
+}
+
+// MarginalRate returns the ordinary income marginal rate for the last dollar
+// of the given taxable income (after standard deduction) for the filing status.
+func (t TaxTables) MarginalRate(taxableIncome float64, status FilingStatus) float64 {
+	if taxableIncome <= 0 {
+		return 0
+	}
+	for _, b := range t.OrdinaryBrackets[status] {
+		max := b.Max
+		if max == 0 || taxableIncome <= max {
+			return b.Rate
+		}
+	}
+	return 0.37
+}
+
 // TaxableSS returns the portion of Social Security benefits subject to
 // federal income tax under IRC section 86. Provisional income is
 // other_income + 0.5 * ss_benefit (AGI-excluding-SS plus tax-exempt interest,
@@ -490,6 +543,7 @@ type YearInputs struct {
 	AcaHouseholdSize int
 	AcaAnnualPremium float64
 	TaxFundingSource TaxFundingSource
+	StockLots        []StockLot
 }
 
 func ProjectYear(state YearState, in YearInputs, computeConv func(state YearState, rmd float64) float64) (ScenarioYear, YearState) {
@@ -533,6 +587,42 @@ func ProjectYear(state YearState, in YearInputs, computeConv func(state YearStat
 		}
 	}
 
+	// When taxes are paid from outside the 401(k) using appreciated stock,
+	// selling that stock triggers its own capital gains tax — an additional
+	// true cost the base projection does not show. Compute it here when the
+	// caller has supplied stock lots.
+	var stockSaleTax float64
+	if in.TaxFundingSource.Resolve() == TaxFundingExternal && len(in.StockLots) > 0 {
+		taxBill := fedTax + stateTax
+		if taxBill > 0 {
+			ltcgRate := in.Tables.LTCGRate(magi, in.Status)
+			niitThreshold := in.Tables.NIITThresholds[in.Status]
+			if niitThreshold > 0 && magi > niitThreshold {
+				ltcgRate += in.Tables.NIITRate
+			}
+			stcgRate := in.Tables.MarginalRate(afterStd, in.Status)
+			var totalValue, ltGain, stGain float64
+			for _, lot := range in.StockLots {
+				if lot.CurrentValue <= 0 {
+					continue
+				}
+				totalValue += lot.CurrentValue
+				gain := lot.CurrentValue - lot.CostBasis
+				if gain <= 0 {
+					continue
+				}
+				if lot.GainType == GainTypeST {
+					stGain += gain
+				} else {
+					ltGain += gain
+				}
+			}
+			if totalValue > 0 {
+				stockSaleTax = taxBill * (ltGain*ltcgRate + stGain*stcgRate) / totalValue
+			}
+		}
+	}
+
 	startingTrad, startingRoth := state.Trad, state.Roth
 
 	// Conversion landing depends on who funds the tax. "external" (default)
@@ -572,6 +662,7 @@ func ProjectYear(state YearState, in YearInputs, computeConv func(state YearStat
 		IRMAATierLabel:      irmaaTier,
 		NIIT:                Round(niit),
 		ACAPenalty:          Round(acaPenalty),
+		StockSaleTax:        Round(stockSaleTax),
 	}
 	return year, YearState{Trad: nextTrad, Roth: nextRoth, Age: state.Age + 1, CalYear: state.CalYear + 1}
 }

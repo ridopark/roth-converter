@@ -64,9 +64,10 @@ func projectScenario(rate, convCase float64, profile domain.Profile, r domain.Re
 		AcaHouseholdSize: profile.AcaHouseholdSize,
 		AcaAnnualPremium: profile.AcaAnnualPremium,
 		TaxFundingSource: profile.TaxFundingSource,
+		StockLots:        profile.StockLots,
 	}
 	years := make([]domain.ScenarioYear, 0, r.Horizon)
-	var sumFedTax, sumStateTax, sumConv, sumRMD, sumIRMAA, sumTaxableSS, sumNIIT, sumACA float64
+	var sumFedTax, sumStateTax, sumConv, sumRMD, sumIRMAA, sumTaxableSS, sumNIIT, sumACA, sumStockSaleTax float64
 
 	// MAGI lookback for IRMAA: year N's surcharge uses MAGI from year N-2.
 	// Seed with the profile's recent-history MAGI; once horizon years generate
@@ -91,6 +92,7 @@ func projectScenario(rate, convCase float64, profile domain.Profile, r domain.Re
 		sumTaxableSS += year.TaxableSS
 		sumNIIT += year.NIIT
 		sumACA += year.ACAPenalty
+		sumStockSaleTax += year.StockSaleTax
 		magiPrev2, magiPrev1 = magiPrev1, year.MAGI
 	}
 
@@ -110,6 +112,7 @@ func projectScenario(rate, convCase float64, profile domain.Profile, r domain.Re
 			TotalIRMAASurcharge: domain.Round(sumIRMAA),
 			TotalNIIT:           domain.Round(sumNIIT),
 			TotalACAPenalty:     domain.Round(sumACA),
+			TotalStockSaleTax:   domain.Round(sumStockSaleTax),
 		},
 	}
 }

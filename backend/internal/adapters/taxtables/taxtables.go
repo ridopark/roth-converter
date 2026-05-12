@@ -36,17 +36,23 @@ type rawBracket struct {
 	Max  *float64 `json:"max"`
 }
 
+type rawLTCGBracketSet struct {
+	ZeroMax    float64 `json:"zero_max"`
+	FifteenMax float64 `json:"fifteen_max"`
+}
+
 type rawTables struct {
-	Year                    int                        `json:"year"`
-	StandardDeduction       map[string]any             `json:"standard_deduction"`
-	OrdinaryBrackets        map[string][]rawBracket    `json:"ordinary_brackets"`
-	RMDDivisors             map[string]float64         `json:"rmd_uniform_lifetime_divisors"`
-	States                  *rawStates                 `json:"states"`
-	IRMAATiers              map[string][]rawIRMAATier  `json:"irmaa_tiers"`
-	SSProvisionalThresholds map[string]rawSSThreshold  `json:"ss_provisional_thresholds"`
-	NIITThreshold           map[string]float64         `json:"niit_threshold"`
-	NIITRate                float64                    `json:"niit_rate"`
-	ACAFpl400Pct2026        map[string]float64         `json:"aca_fpl_400pct_2026"`
+	Year                    int                           `json:"year"`
+	StandardDeduction       map[string]any                `json:"standard_deduction"`
+	OrdinaryBrackets        map[string][]rawBracket       `json:"ordinary_brackets"`
+	LTCGBrackets            map[string]rawLTCGBracketSet  `json:"ltcg_brackets"`
+	RMDDivisors             map[string]float64            `json:"rmd_uniform_lifetime_divisors"`
+	States                  *rawStates                    `json:"states"`
+	IRMAATiers              map[string][]rawIRMAATier     `json:"irmaa_tiers"`
+	SSProvisionalThresholds map[string]rawSSThreshold     `json:"ss_provisional_thresholds"`
+	NIITThreshold           map[string]float64            `json:"niit_threshold"`
+	NIITRate                float64                       `json:"niit_rate"`
+	ACAFpl400Pct2026        map[string]float64            `json:"aca_fpl_400pct_2026"`
 }
 
 type rawStates struct {
@@ -80,6 +86,7 @@ func (r *Repo) load(year int) (domain.TaxTables, error) {
 		Year:              raw.Year,
 		StandardDeduction: map[domain.FilingStatus]float64{},
 		OrdinaryBrackets:  map[domain.FilingStatus][]domain.Bracket{},
+		LTCGBrackets:      map[domain.FilingStatus]domain.LTCGBracketSet{},
 		RMDDivisors:       map[int]float64{},
 		StateTaxRates:     map[string]float64{},
 		NoTaxStates:       map[string]bool{},
@@ -115,6 +122,13 @@ func (r *Repo) load(year int) (domain.TaxTables, error) {
 			bracks = append(bracks, domain.Bracket{Rate: b.Rate, Max: max})
 		}
 		out.OrdinaryBrackets[domain.FilingStatus(status)] = bracks
+	}
+
+	for status, bs := range raw.LTCGBrackets {
+		out.LTCGBrackets[domain.FilingStatus(status)] = domain.LTCGBracketSet{
+			ZeroMax:    bs.ZeroMax,
+			FifteenMax: bs.FifteenMax,
+		}
 	}
 
 	for k, v := range raw.RMDDivisors {
