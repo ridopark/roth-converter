@@ -47,6 +47,7 @@ func (o *BracketFill) Solve(req domain.OptimizeRequest) (domain.OptimizePlan, er
 		AcaHouseholdSize: req.AcaHouseholdSize,
 		AcaAnnualPremium: req.AcaAnnualPremium,
 		TaxFundingSource: req.TaxFundingSource,
+		StockLots:        req.StockLots,
 	}
 
 	fillToBracket := func(s domain.YearState, rmd float64) float64 {
@@ -76,7 +77,7 @@ func (o *BracketFill) Solve(req domain.OptimizeRequest) (domain.OptimizePlan, er
 	}
 
 	years := make([]domain.ScenarioYear, 0, r.Horizon)
-	var sumFedTax, sumStateTax, sumConv, sumRMD, sumIRMAA, sumTaxableSS, sumNIIT, sumACA float64
+	var sumFedTax, sumStateTax, sumConv, sumRMD, sumIRMAA, sumTaxableSS, sumNIIT, sumACA, sumStockSaleTax float64
 
 	magiPrev2 := req.MAGITwoYearsAgo
 	magiPrev1 := req.MAGIOneYearAgo
@@ -99,6 +100,7 @@ func (o *BracketFill) Solve(req domain.OptimizeRequest) (domain.OptimizePlan, er
 		sumTaxableSS += year.TaxableSS
 		sumNIIT += year.NIIT
 		sumACA += year.ACAPenalty
+		sumStockSaleTax += year.StockSaleTax
 		magiPrev2, magiPrev1 = magiPrev1, year.MAGI
 	}
 
@@ -119,6 +121,7 @@ func (o *BracketFill) Solve(req domain.OptimizeRequest) (domain.OptimizePlan, er
 				TotalIRMAASurcharge: domain.Round(sumIRMAA),
 				TotalNIIT:           domain.Round(sumNIIT),
 				TotalACAPenalty:     domain.Round(sumACA),
+				TotalStockSaleTax:   domain.Round(sumStockSaleTax),
 			},
 		},
 		Brackets:          tables.OrdinaryBrackets[req.FilingStatus],
